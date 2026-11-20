@@ -37,7 +37,9 @@ jobs:
       - name: Work out version
         id: v
         run: |
+          # Accept v0.1.0.0, v.0.1.0.0 and 0.1.0.0.
           VERSION="${GITHUB_REF_NAME#v}"
+          VERSION="${VERSION#.}"
           if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "Tag must look like v1.2.3.4 (four numbers)"; exit 1
           fi
