@@ -10,7 +10,14 @@
     <div data-role="content">
         <div class="content-primary">
             <style>
-                #MemConfigPage .mem-section { margin: 2em 0 1em; }
+                #MemConfigPage .mem-tabs { display: flex; flex-wrap: wrap; gap: .3em; border-bottom: 1px solid rgba(128,128,128,.35); margin: 1em 0 1.5em; }
+                #MemConfigPage .mem-tab { background: none; border: none; color: inherit; font: inherit; padding: .7em 1.1em; cursor: pointer; opacity: .7; border-bottom: 3px solid transparent; }
+                #MemConfigPage .mem-tab:hover { opacity: 1; }
+                #MemConfigPage .mem-tab.active { opacity: 1; font-weight: bold; border-bottom-color: #00a4dc; }
+                #MemConfigPage .mem-panel { display: none; }
+                #MemConfigPage .mem-panel.active { display: block; }
+                #MemConfigPage .mem-card { background: rgba(128,128,128,.08); border: 1px solid rgba(128,128,128,.2); border-radius: .5em; padding: 1em 1.3em; margin-bottom: 1.3em; }
+                #MemConfigPage .mem-card > h3 { margin-top: 0; }
                 #MemConfigPage .mem-row { display: flex; flex-wrap: wrap; gap: 1em; align-items: flex-end; }
                 #MemConfigPage .mem-row > * { flex: 1 1 14em; }
                 #MemConfigPage .mem-color { display: flex; align-items: center; gap: .6em; margin-bottom: 1.2em; }
@@ -18,275 +25,419 @@
                 #MemConfigPage .mem-range { width: 100%; }
                 #MemConfigPage .mem-status { padding: .8em 1em; border-radius: .3em; background: rgba(128,128,128,.15); margin-bottom: 1em; }
                 #MemConfigPage .mem-status.error { background: rgba(198,40,40,.25); }
+                #MemConfigPage .mem-progress { height: .6em; border-radius: .3em; background: rgba(128,128,128,.25); overflow: hidden; margin: .6em 0 .3em; }
+                #MemConfigPage .mem-progress > div { height: 100%; width: 0; background: #00a4dc; transition: width .4s; }
                 #MemConfigPage table { width: 100%; border-collapse: collapse; }
                 #MemConfigPage th, #MemConfigPage td { text-align: left; padding: .4em .5em; border-bottom: 1px solid rgba(128,128,128,.25); vertical-align: top; }
-                #MemConfigPage td input, #MemConfigPage td select { width: 100%; box-sizing: border-box; }
+                #MemConfigPage td input[type=text], #MemConfigPage td select { width: 100%; box-sizing: border-box; background: rgba(128,128,128,.15); color: inherit; border: 1px solid rgba(128,128,128,.3); border-radius: .2em; padding: .3em; }
+                #MemConfigPage td select option { color: #000; }
                 #MemConfigPage .mem-preview { display: flex; gap: 1.5em; flex-wrap: wrap; margin-top: 1em; }
                 #MemConfigPage .mem-preview img { max-width: 220px; border-radius: .3em; box-shadow: 0 2px 10px rgba(0,0,0,.4); }
                 #MemConfigPage .mem-small { font-size: .85em; opacity: .75; }
                 #MemConfigPage .mem-buttons { display: flex; gap: .6em; flex-wrap: wrap; margin: .5em 0 1em; }
                 #MemConfigPage .mem-buttons button { width: auto; margin: 0; }
                 #MemConfigPage details summary { cursor: pointer; }
+                #MemConfigPage .mem-help-btn { display: inline-flex; align-items: center; justify-content: center; width: 1.3em; height: 1.3em; border-radius: 50%; border: 1px solid currentColor; font-size: .75em; font-weight: bold; cursor: pointer; opacity: .7; margin-left: .4em; vertical-align: middle; background: none; color: inherit; padding: 0; }
+                #MemConfigPage .mem-help-btn:hover { opacity: 1; }
+                #MemConfigPage .mem-help { display: none; font-size: .88em; background: rgba(0,164,220,.12); border-left: 3px solid #00a4dc; padding: .5em .8em; margin: .3em 0 .8em; border-radius: .2em; }
+                #MemConfigPage .mem-help.open { display: block; }
+                #MemConfigPage .mem-picker { max-height: 16em; overflow-y: auto; border: 1px solid rgba(128,128,128,.3); border-radius: .3em; padding: .3em .6em; margin: .5em 0; }
+                #MemConfigPage .mem-picker label { display: block; padding: .2em 0; cursor: pointer; }
+                #MemConfigPage .mem-search { width: 100%; box-sizing: border-box; padding: .5em; background: rgba(128,128,128,.15); color: inherit; border: 1px solid rgba(128,128,128,.3); border-radius: .3em; }
+                #MemConfigPage .mem-template { display: flex; flex-wrap: wrap; gap: 1em; align-items: center; margin: .5em 0; }
+                #MemConfigPage .mem-template select { background: rgba(128,128,128,.15); color: inherit; border: 1px solid rgba(128,128,128,.3); border-radius: .2em; padding: .3em; }
+                #MemConfigPage .mem-template select option { color: #000; }
+                #MemConfigPage .mem-specials-panel { margin-top: 1em; }
+                #MemConfigPage .mem-save-bar { position: sticky; bottom: 0; padding: .8em 0; background: inherit; }
+                #MemConfigPage .mem-badge { font-size: .75em; padding: .1em .45em; border-radius: .3em; background: rgba(128,128,128,.25); margin-left: .3em; }
             </style>
 
             <form id="MemConfigForm">
                 <h2 class="sectionTitle">Missing Episode Marker</h2>
 
-                <!-- ================= STATUS ================= -->
-                <div class="mem-section">
-                    <h3>Status</h3>
-                    <div id="memStatus" class="mem-status">Loading…</div>
-                    <div class="mem-buttons">
-                        <button is="emby-button" type="button" id="memRunNow" class="raised emby-button"><span>Run check now</span></button>
-                        <button is="emby-button" type="button" id="memRefreshReport" class="raised emby-button"><span>Refresh report</span></button>
-                        <button is="emby-button" type="button" id="memRemoveAll" class="raised emby-button"><span>Remove all markers</span></button>
-                    </div>
-                    <div id="memReport"></div>
+                <div class="mem-tabs" role="tablist">
+                    <button type="button" class="mem-tab active" data-tab="general">General</button>
+                    <button type="button" class="mem-tab" data-tab="status">Status &amp; report</button>
+                    <button type="button" class="mem-tab" data-tab="appearance">Detection &amp; appearance</button>
+                    <button type="button" class="mem-tab" data-tab="shows">TV shows</button>
+                    <button type="button" class="mem-tab" data-tab="anime">Anime</button>
                 </div>
 
-                <!-- ================= SONARR ================= -->
-                <div class="mem-section">
-                    <h3>Sonarr</h3>
-                    <div class="inputContainer">
-                        <label class="inputLabel inputLabelUnfocused" for="SonarrUrl">Sonarr URL</label>
-                        <input id="SonarrUrl" type="text" is="emby-input" />
-                        <div class="fieldDescription">As the Jellyfin server reaches it, e.g. http://sonarr:8989 when both run on the same Docker network.</div>
-                    </div>
-                    <div class="inputContainer">
-                        <label class="inputLabel inputLabelUnfocused" for="SonarrApiKey">Sonarr API key</label>
-                        <input id="SonarrApiKey" type="password" is="emby-input" autocomplete="off" />
-                        <div class="fieldDescription">Sonarr → Settings → General → API Key.</div>
-                    </div>
-                    <div class="mem-buttons">
-                        <button is="emby-button" type="button" id="memTestSonarr" class="raised emby-button"><span>Save &amp; test connection</span></button>
-                    </div>
-                    <div id="memSonarrResult" class="mem-small"></div>
-                    <div class="checkboxContainer checkboxContainer-withDescription">
-                        <label class="emby-checkbox-label">
-                            <input id="OnlyMonitoredSeries" type="checkbox" is="emby-checkbox" />
-                            <span>Only check series Sonarr monitors</span>
-                        </label>
-                    </div>
-                </div>
-
-                <!-- ================= DETECTION ================= -->
-                <div class="mem-section">
-                    <h3>Detection</h3>
-                    <div class="inputContainer">
-                        <label class="inputLabel inputLabelUnfocused" for="GracePeriodWeeks">Grace period for ongoing shows (weeks)</label>
-                        <input id="GracePeriodWeeks" type="number" min="0" max="520" is="emby-input" />
-                        <div class="fieldDescription">A missing episode of a show that is still airing only counts once it aired this many weeks ago. Missing episodes in older seasons count the same way.</div>
-                    </div>
-                    <div class="checkboxContainer checkboxContainer-withDescription">
-                        <label class="emby-checkbox-label">
-                            <input id="ApplyGraceToEndedShows" type="checkbox" is="emby-checkbox" />
-                            <span>Also apply the grace period to shows that have ended</span>
-                        </label>
-                        <div class="fieldDescription checkboxFieldDescription">Off: an ended show is marked as soon as any monitored episode is missing.</div>
-                    </div>
-                    <div class="checkboxContainer checkboxContainer-withDescription">
-                        <label class="emby-checkbox-label">
-                            <input id="RunAfterLibraryScan" type="checkbox" is="emby-checkbox" />
-                            <span>Also run after every library scan</span>
-                        </label>
-                        <div class="fieldDescription checkboxFieldDescription">Puts markers back right away if a scan replaced a poster. The scheduled task also runs every 6 hours (change it under Scheduled Tasks).</div>
-                    </div>
-
-                    <h4>Special episodes (season 0)</h4>
-                    <div class="selectContainer">
-                        <label class="selectLabel" for="SpecialsMode">Count missing specials</label>
-                        <select is="emby-select" id="SpecialsMode" class="emby-select-withcolor emby-select">
-                            <option value="Off">No (off for every series)</option>
-                            <option value="AllSeries">Yes, for every series (except series rules set to Exclude)</option>
-                            <option value="OnlyIncludedSeries">Only for series with a rule set to Include</option>
-                        </select>
-                    </div>
-                    <div class="selectContainer">
-                        <label class="selectLabel" for="SpecialsSource">Which specials count</label>
-                        <select is="emby-select" id="SpecialsSource" class="emby-select-withcolor emby-select">
-                            <option value="SonarrMonitoring">The ones monitored in Sonarr</option>
-                            <option value="PluginSelection">The ones selected in the series rules below (empty = all)</option>
-                        </select>
-                    </div>
-                </div>
-
-                <!-- ================= ANIME ================= -->
-                <div class="mem-section">
-                    <h3>Anime &amp; filler</h3>
-                    <div class="checkboxContainer">
-                        <label class="emby-checkbox-label">
-                            <input id="AnimeEnabled" type="checkbox" is="emby-checkbox" />
-                            <span>Check anime series (Sonarr series type "Anime")</span>
-                        </label>
-                    </div>
-                    <div class="checkboxContainer checkboxContainer-withDescription">
-                        <label class="emby-checkbox-label">
-                            <input id="CountMissingFiller" type="checkbox" is="emby-checkbox" />
-                            <span>Missing filler episodes count as missing</span>
-                        </label>
-                        <div class="fieldDescription checkboxFieldDescription">Off: an anime is not marked just because filler is missing. Can be changed per series below.</div>
-                    </div>
-                    <div class="checkboxContainer">
-                        <label class="emby-checkbox-label">
-                            <input id="TreatMixedAsFiller" type="checkbox" is="emby-checkbox" />
-                            <span>Treat "mixed canon/filler" episodes as filler</span>
-                        </label>
-                    </div>
-                    <div class="checkboxContainer">
-                        <label class="emby-checkbox-label">
-                            <input id="FillerLookupEnabled" type="checkbox" is="emby-checkbox" />
-                            <span>Look up filler lists online</span>
-                        </label>
-                    </div>
-                    <div class="mem-row">
+                <!-- ============================ GENERAL ============================ -->
+                <div class="mem-panel active" data-panel="general">
+                    <div class="mem-card">
+                        <h3>Sonarr connection</h3>
                         <div class="inputContainer">
-                            <label class="inputLabel inputLabelUnfocused" for="FillerSourceUrl">Filler list website</label>
-                            <input id="FillerSourceUrl" type="text" is="emby-input" />
+                            <label class="inputLabel inputLabelUnfocused" for="SonarrUrl">Sonarr URL</label>
+                            <input id="SonarrUrl" type="text" is="emby-input" />
+                            <div class="fieldDescription">As the Jellyfin server reaches it, e.g. http://sonarr:8989 when both run on the same Docker network.</div>
                         </div>
                         <div class="inputContainer">
-                            <label class="inputLabel inputLabelUnfocused" for="FillerRefreshDays">Refresh filler data every (days)</label>
-                            <input id="FillerRefreshDays" type="number" min="1" max="365" is="emby-input" />
+                            <label class="inputLabel inputLabelUnfocused" for="SonarrApiKey">Sonarr API key</label>
+                            <input id="SonarrApiKey" type="password" is="emby-input" autocomplete="off" />
+                            <div class="fieldDescription">Sonarr → Settings → General → API Key.</div>
                         </div>
-                    </div>
-                    <div class="fieldDescription">If the website changes, enter filler episodes by hand per series below ("Manual filler"); a manual list always wins.</div>
-                    <div class="mem-buttons">
-                        <button is="emby-button" type="button" id="memClearFiller" class="raised emby-button"><span>Clear cached filler data</span></button>
-                    </div>
-                </div>
-
-                <!-- ================= APPEARANCE ================= -->
-                <div class="mem-section">
-                    <h3>Marking &amp; appearance</h3>
-                    <div class="checkboxContainer checkboxContainer-withDescription">
-                        <label class="emby-checkbox-label">
-                            <input id="MarkingEnabled" type="checkbox" is="emby-checkbox" />
-                            <span>Marking enabled</span>
-                        </label>
-                        <div class="fieldDescription checkboxFieldDescription">Turn off and run the check to restore every original poster.</div>
-                    </div>
-                    <div class="mem-row">
+                        <div class="mem-buttons">
+                            <button is="emby-button" type="button" id="memTestSonarr" class="raised emby-button"><span>Save &amp; test connection</span></button>
+                        </div>
+                        <div id="memSonarrResult" class="mem-small"></div>
                         <div class="checkboxContainer">
                             <label class="emby-checkbox-label">
-                                <input id="MarkSeries" type="checkbox" is="emby-checkbox" />
-                                <span>Mark series posters</span>
-                            </label>
-                        </div>
-                        <div class="checkboxContainer">
-                            <label class="emby-checkbox-label">
-                                <input id="MarkSeasons" type="checkbox" is="emby-checkbox" />
-                                <span>Mark season posters</span>
+                                <input id="OnlyMonitoredSeries" type="checkbox" is="emby-checkbox" />
+                                <span>Only check series Sonarr monitors</span>
                             </label>
                         </div>
                     </div>
 
-                    <h4>Poster filter</h4>
-                    <div class="mem-row">
-                        <div class="checkboxContainer">
-                            <label class="emby-checkbox-label">
-                                <input id="Grayscale" type="checkbox" is="emby-checkbox" />
-                                <span>Make the poster grey</span>
-                            </label>
-                        </div>
-                        <div class="checkboxContainer">
-                            <label class="emby-checkbox-label">
-                                <input id="FilterEnabled" type="checkbox" is="emby-checkbox" />
-                                <span>Colour filter over the poster</span>
-                            </label>
-                        </div>
-                    </div>
-                    <div class="mem-row">
-                        <div class="mem-color"><input id="FilterColor" type="color" /><label for="FilterColor">Filter colour</label></div>
-                        <div>
-                            <label for="FilterOpacity">Filter opacity: <span id="FilterOpacityValue"></span>%</label>
-                            <input id="FilterOpacity" class="mem-range" type="range" min="0" max="100" />
-                        </div>
-                    </div>
-
-                    <h4>Banner</h4>
-                    <div class="checkboxContainer">
-                        <label class="emby-checkbox-label">
-                            <input id="BannerEnabled" type="checkbox" is="emby-checkbox" />
-                            <span>Show a banner</span>
-                        </label>
-                    </div>
-                    <div class="selectContainer">
-                        <label class="selectLabel" for="BannerPosition">Banner position</label>
-                        <select is="emby-select" id="BannerPosition" class="emby-select-withcolor emby-select">
-                            <option value="Top">Top</option>
-                            <option value="Bottom">Bottom</option>
-                            <option value="Diagonal">Diagonal across the poster</option>
-                            <option value="CornerRibbon">Corner ribbon (top right)</option>
-                        </select>
-                    </div>
-                    <div class="mem-row">
-                        <div class="mem-color"><input id="BannerColor" type="color" /><label for="BannerColor">Banner colour</label></div>
-                        <div class="mem-color"><input id="TextColor" type="color" /><label for="TextColor">Text colour</label></div>
-                    </div>
-                    <div class="mem-row">
-                        <div>
-                            <label for="BannerOpacity">Banner opacity: <span id="BannerOpacityValue"></span>%</label>
-                            <input id="BannerOpacity" class="mem-range" type="range" min="0" max="100" />
-                        </div>
-                        <div>
-                            <label for="BannerSizePercent">Banner size: <span id="BannerSizePercentValue"></span>% of poster height</label>
-                            <input id="BannerSizePercent" class="mem-range" type="range" min="3" max="40" />
-                        </div>
-                    </div>
-                    <div class="mem-row">
-                        <div class="inputContainer">
-                            <label class="inputLabel inputLabelUnfocused" for="SeriesBannerText">Series banner text</label>
-                            <input id="SeriesBannerText" type="text" is="emby-input" />
-                        </div>
-                        <div class="inputContainer">
-                            <label class="inputLabel inputLabelUnfocused" for="SeasonBannerText">Season banner text</label>
-                            <input id="SeasonBannerText" type="text" is="emby-input" />
-                        </div>
-                    </div>
-                    <div class="fieldDescription">{count} is replaced by the number of missing episodes.</div>
-
-                    <div class="mem-buttons">
-                        <button is="emby-button" type="button" id="memPreview" class="raised emby-button"><span>Preview</span></button>
-                    </div>
-                    <div class="mem-small">Preview uses the settings on this page, even before saving.</div>
-                    <div class="mem-preview" id="memPreviewBox"></div>
-                </div>
-
-                <!-- ================= RULES ================= -->
-                <div class="mem-section">
-                    <h3>Series rules</h3>
-                    <div class="fieldDescription">Exceptions for individual series. Series without a rule follow the settings above.</div>
-                    <div class="mem-row" style="margin-top:1em">
+                    <div class="mem-card">
+                        <h3>When to check</h3>
                         <div class="selectContainer">
-                            <label class="selectLabel" for="memSeriesPicker">Add a rule for</label>
-                            <select is="emby-select" id="memSeriesPicker" class="emby-select-withcolor emby-select">
-                                <option value="">(click "Load series from Sonarr" first)</option>
+                            <label class="selectLabel" for="Schedule">Full check on a timer
+                                <button type="button" class="mem-help-btn" data-help="hSchedule">?</button></label>
+                            <select is="emby-select" id="Schedule" class="emby-select-withcolor emby-select">
+                                <option value="Off">Off</option>
+                                <option value="Hourly">Every hour</option>
+                                <option value="Every6Hours">Every 6 hours</option>
+                                <option value="Every12Hours">Every 12 hours</option>
+                                <option value="Daily">Once a day</option>
+                                <option value="Weekly">Once a week</option>
                             </select>
                         </div>
+                        <div class="mem-help" id="hSchedule">
+                            A full check asks Sonarr about every series. With "React to library changes" on, most changes are handled
+                            straight away, so the timer is mainly a safety net, e.g. for episodes that pass the grace period or
+                            files deleted outside Jellyfin. Once a day is plenty for most servers. This setting controls the task
+                            "Mark series with missing episodes" under Dashboard → Scheduled Tasks.
+                        </div>
+                        <div class="checkboxContainer">
+                            <label class="emby-checkbox-label">
+                                <input id="ReactToLibraryChanges" type="checkbox" is="emby-checkbox" />
+                                <span>React to library changes right away
+                                    <button type="button" class="mem-help-btn" data-help="hReact">?</button></span>
+                            </label>
+                        </div>
+                        <div class="mem-help" id="hReact">
+                            When Jellyfin refreshes a series it may switch back to the poster file in the series folder.
+                            With this on, the marker is put back within a few seconds. A series is also rechecked about
+                            1.5 minutes after episodes are added or removed, so a completed show loses its marker without
+                            waiting for the next full check.
+                        </div>
+                        <div class="checkboxContainer">
+                            <label class="emby-checkbox-label">
+                                <input id="RunAfterLibraryScan" type="checkbox" is="emby-checkbox" />
+                                <span>Also run a full check after every library scan</span>
+                            </label>
+                        </div>
                     </div>
-                    <div class="mem-buttons">
-                        <button is="emby-button" type="button" id="memLoadSeries" class="raised emby-button"><span>Load series from Sonarr</span></button>
-                        <button is="emby-button" type="button" id="memAddRule" class="raised emby-button"><span>Add rule</span></button>
-                    </div>
-                    <div style="overflow-x:auto">
-                        <table>
-                            <thead>
-                            <tr>
-                                <th>Series</th>
-                                <th>Never mark</th>
-                                <th>Specials</th>
-                                <th>Specials that count<br><span class="mem-small">e.g. 1,3,5-7 · empty = all</span></th>
-                                <th>Filler (anime)</th>
-                                <th>Filler list page<br><span class="mem-small">e.g. one-piece · empty = auto</span></th>
-                                <th>Manual filler<br><span class="mem-small">absolute numbers, e.g. 26,97-106</span></th>
-                                <th></th>
-                            </tr>
-                            </thead>
-                            <tbody id="memRules"></tbody>
-                        </table>
+
+                    <div class="mem-card">
+                        <h3>Menu</h3>
+                        <div class="checkboxContainer">
+                            <label class="emby-checkbox-label">
+                                <input id="ShowInMenu" type="checkbox" is="emby-checkbox" />
+                                <span>Show "Missing Episode Marker" in the dashboard menu</span>
+                            </label>
+                        </div>
+                        <div class="mem-small">Takes effect after saving and reloading the page (Ctrl+F5).</div>
                     </div>
                 </div>
 
-                <div>
+                <!-- ============================ STATUS ============================ -->
+                <div class="mem-panel" data-panel="status">
+                    <div class="mem-card">
+                        <h3>Status</h3>
+                        <div id="memStatus" class="mem-status">Loading…</div>
+                        <div id="memProgressWrap" style="display:none">
+                            <div class="mem-progress"><div id="memProgressBar"></div></div>
+                            <div id="memProgressText" class="mem-small"></div>
+                        </div>
+                        <div class="mem-buttons">
+                            <button is="emby-button" type="button" id="memRunNow" class="raised emby-button"><span>Run check now</span></button>
+                            <button is="emby-button" type="button" id="memRefreshReport" class="raised emby-button"><span>Refresh report</span></button>
+                            <button is="emby-button" type="button" id="memRemoveAll" class="raised emby-button"><span>Remove all markers</span></button>
+                        </div>
+                        <div class="mem-small">Details of every check are in Dashboard → Logs (search for "Missing Episode Marker" or a series name).</div>
+                    </div>
+                    <div class="mem-card">
+                        <h3>Incomplete series</h3>
+                        <div id="memReport" class="mem-small">No report yet.</div>
+                    </div>
+                </div>
+
+                <!-- ============================ APPEARANCE ============================ -->
+                <div class="mem-panel" data-panel="appearance">
+                    <div class="mem-card">
+                        <h3>Grace period</h3>
+                        <div class="mem-row">
+                            <div class="inputContainer">
+                                <label class="inputLabel inputLabelUnfocused" for="GracePeriodAmount">Wait before counting a missing episode</label>
+                                <input id="GracePeriodAmount" type="number" min="0" max="1000" is="emby-input" />
+                            </div>
+                            <div class="selectContainer">
+                                <label class="selectLabel" for="GracePeriodUnit">Unit</label>
+                                <select is="emby-select" id="GracePeriodUnit" class="emby-select-withcolor emby-select">
+                                    <option value="Days">Days</option>
+                                    <option value="Weeks">Weeks</option>
+                                    <option value="Months">Months</option>
+                                    <option value="Years">Years</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="fieldDescription">For shows that are still airing: an episode only counts as missing once it aired this long ago.
+                            <button type="button" class="mem-help-btn" data-help="hGrace">?</button></div>
+                        <div class="mem-help" id="hGrace">
+                            Example with 4 weeks: an episode that aired on 1 March only marks the show from 29 March if it is still missing.
+                            This applies to every season, so a gap in season 3 of a show that is airing season 5 is marked as soon as
+                            those season 3 episodes are older than 4 weeks (which they usually are). Unaired and TBA episodes never count.
+                        </div>
+                        <div class="checkboxContainer">
+                            <label class="emby-checkbox-label">
+                                <input id="ApplyGraceToEndedShows" type="checkbox" is="emby-checkbox" />
+                                <span>Also apply the grace period to shows that have ended</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="mem-card">
+                        <h3>What to mark</h3>
+                        <div class="checkboxContainer checkboxContainer-withDescription">
+                            <label class="emby-checkbox-label">
+                                <input id="MarkingEnabled" type="checkbox" is="emby-checkbox" />
+                                <span>Marking enabled</span>
+                            </label>
+                            <div class="fieldDescription checkboxFieldDescription">Turn off and run a check to restore every original poster.</div>
+                        </div>
+                        <div class="mem-row">
+                            <div class="checkboxContainer">
+                                <label class="emby-checkbox-label">
+                                    <input id="MarkSeries" type="checkbox" is="emby-checkbox" />
+                                    <span>Series posters</span>
+                                </label>
+                            </div>
+                            <div class="checkboxContainer">
+                                <label class="emby-checkbox-label">
+                                    <input id="MarkSeasons" type="checkbox" is="emby-checkbox" />
+                                    <span>Season posters</span>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mem-card">
+                        <h3>Poster filter</h3>
+                        <div class="mem-row">
+                            <div class="checkboxContainer">
+                                <label class="emby-checkbox-label">
+                                    <input id="Grayscale" type="checkbox" is="emby-checkbox" />
+                                    <span>Make the poster grey</span>
+                                </label>
+                            </div>
+                            <div class="checkboxContainer">
+                                <label class="emby-checkbox-label">
+                                    <input id="FilterEnabled" type="checkbox" is="emby-checkbox" />
+                                    <span>Colour filter over the poster</span>
+                                </label>
+                            </div>
+                        </div>
+                        <div class="mem-row">
+                            <div class="mem-color"><input id="FilterColor" type="color" /><label for="FilterColor">Filter colour</label></div>
+                            <div>
+                                <label for="FilterOpacity">Filter opacity: <span id="FilterOpacityValue"></span>%</label>
+                                <input id="FilterOpacity" class="mem-range" type="range" min="0" max="100" />
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mem-card">
+                        <h3>Banner</h3>
+                        <div class="checkboxContainer">
+                            <label class="emby-checkbox-label">
+                                <input id="BannerEnabled" type="checkbox" is="emby-checkbox" />
+                                <span>Show a banner</span>
+                            </label>
+                        </div>
+                        <div class="selectContainer">
+                            <label class="selectLabel" for="BannerPosition">Position</label>
+                            <select is="emby-select" id="BannerPosition" class="emby-select-withcolor emby-select">
+                                <option value="Top">Top</option>
+                                <option value="Bottom">Bottom</option>
+                                <option value="Diagonal">Diagonal across the poster</option>
+                                <option value="CornerRibbon">Corner ribbon (top right)</option>
+                            </select>
+                        </div>
+                        <div class="mem-row">
+                            <div class="mem-color"><input id="BannerColor" type="color" /><label for="BannerColor">Banner colour</label></div>
+                            <div class="mem-color"><input id="TextColor" type="color" /><label for="TextColor">Text colour</label></div>
+                        </div>
+                        <div class="mem-row">
+                            <div>
+                                <label for="BannerOpacity">Banner opacity: <span id="BannerOpacityValue"></span>%</label>
+                                <input id="BannerOpacity" class="mem-range" type="range" min="0" max="100" />
+                            </div>
+                            <div>
+                                <label for="BannerSizePercent">Banner size: <span id="BannerSizePercentValue"></span>% of poster height</label>
+                                <input id="BannerSizePercent" class="mem-range" type="range" min="3" max="40" />
+                            </div>
+                        </div>
+                        <div class="mem-row">
+                            <div class="inputContainer">
+                                <label class="inputLabel inputLabelUnfocused" for="SeriesBannerText">Series banner text</label>
+                                <input id="SeriesBannerText" type="text" is="emby-input" />
+                            </div>
+                            <div class="inputContainer">
+                                <label class="inputLabel inputLabelUnfocused" for="SeasonBannerText">Season banner text</label>
+                                <input id="SeasonBannerText" type="text" is="emby-input" />
+                            </div>
+                        </div>
+                        <div class="fieldDescription">Write {count} where the number of missing episodes should go, e.g. "MISSING {count}".</div>
+                        <div class="mem-buttons" style="margin-top:1em">
+                            <button is="emby-button" type="button" id="memPreview" class="raised emby-button"><span>Preview</span></button>
+                        </div>
+                        <div class="mem-small">Uses the settings on this page, even before saving.</div>
+                        <div class="mem-preview" id="memPreviewBox"></div>
+                    </div>
+                </div>
+
+                <!-- ============================ TV SHOWS ============================ -->
+                <div class="mem-panel" data-panel="shows">
+                    <div class="mem-card">
+                        <h3>Special episodes (season 0)</h3>
+                        <div class="selectContainer">
+                            <label class="selectLabel" for="SpecialsMode">Count missing specials
+                                <button type="button" class="mem-help-btn" data-help="hSpecialsMode">?</button></label>
+                            <select is="emby-select" id="SpecialsMode" class="emby-select-withcolor emby-select">
+                                <option value="Off">No, ignore specials everywhere</option>
+                                <option value="AllSeries">Yes, for every series (except rules set to Exclude)</option>
+                                <option value="OnlyIncludedSeries">Only for series with a rule set to Include</option>
+                            </select>
+                        </div>
+                        <div class="mem-help" id="hSpecialsMode">
+                            Specials are often skipped on purpose, so by default they never mark a show. "Only for series with a rule"
+                            lets you pick a handful of shows below whose specials matter. This setting applies to anime too.
+                        </div>
+                        <div class="selectContainer">
+                            <label class="selectLabel" for="SpecialsSource">Which specials count
+                                <button type="button" class="mem-help-btn" data-help="hSpecialsSource">?</button></label>
+                            <select is="emby-select" id="SpecialsSource" class="emby-select-withcolor emby-select">
+                                <option value="SonarrMonitoring">The ones monitored in Sonarr</option>
+                                <option value="PluginSelection">The ones chosen in the rules below</option>
+                            </select>
+                        </div>
+                        <div class="mem-help" id="hSpecialsSource">
+                            "Monitored in Sonarr": manage it in Sonarr by monitoring only the specials you want.<br>
+                            "Chosen in the rules": click "Choose…" on a rule to tick specials from a list. A rule with nothing chosen counts all of that series' specials.<br>
+                            Sonarr numbers specials by TVDB's season 0, which often differs from IMDb (IMDb's "S2E4" might be special 8 in Sonarr). The picker shows titles and dates, so you don't need the numbers.
+                        </div>
+                    </div>
+
+                    <div class="mem-card">
+                        <h3>Rules for TV shows</h3>
+                        <div class="fieldDescription">Exceptions for individual shows. Shows without a rule follow the settings in the other tabs.</div>
+                        <div data-adder="shows"></div>
+                        <div style="overflow-x:auto;margin-top:1em">
+                            <table>
+                                <thead>
+                                <tr>
+                                    <th>Show</th>
+                                    <th>Never mark</th>
+                                    <th>Specials</th>
+                                    <th>Specials that count</th>
+                                    <th></th>
+                                </tr>
+                                </thead>
+                                <tbody id="memRulesShows"></tbody>
+                            </table>
+                        </div>
+                        <div class="mem-specials-panel" data-specials="shows"></div>
+                    </div>
+                </div>
+
+                <!-- ============================ ANIME ============================ -->
+                <div class="mem-panel" data-panel="anime">
+                    <div class="mem-card">
+                        <h3>Anime</h3>
+                        <div class="checkboxContainer">
+                            <label class="emby-checkbox-label">
+                                <input id="AnimeEnabled" type="checkbox" is="emby-checkbox" />
+                                <span>Check anime series (Sonarr series type "Anime")</span>
+                            </label>
+                        </div>
+                        <div class="checkboxContainer">
+                            <label class="emby-checkbox-label">
+                                <input id="CountMissingFiller" type="checkbox" is="emby-checkbox" />
+                                <span>Missing filler episodes count as missing
+                                    <button type="button" class="mem-help-btn" data-help="hFiller">?</button></span>
+                            </label>
+                        </div>
+                        <div class="mem-help" id="hFiller">
+                            Example: an anime with 100 episodes where episodes 40-45 are filler. If only 42 is missing and this is off,
+                            the anime is not marked. Turn it on if you want every episode, filler included. You can change this per anime below.
+                        </div>
+                        <div class="checkboxContainer">
+                            <label class="emby-checkbox-label">
+                                <input id="TreatMixedAsFiller" type="checkbox" is="emby-checkbox" />
+                                <span>Treat "mixed canon/filler" episodes as filler</span>
+                            </label>
+                        </div>
+                        <div class="mem-small">Specials for anime follow the settings on the TV shows tab.</div>
+                    </div>
+
+                    <div class="mem-card">
+                        <h3>Filler lists</h3>
+                        <div class="checkboxContainer">
+                            <label class="emby-checkbox-label">
+                                <input id="FillerLookupEnabled" type="checkbox" is="emby-checkbox" />
+                                <span>Look up filler lists online</span>
+                            </label>
+                        </div>
+                        <div class="mem-row">
+                            <div class="inputContainer">
+                                <label class="inputLabel inputLabelUnfocused" for="FillerSourceUrl">Filler list website</label>
+                                <input id="FillerSourceUrl" type="text" is="emby-input" />
+                            </div>
+                            <div class="inputContainer">
+                                <label class="inputLabel inputLabelUnfocused" for="FillerRefreshDays">Fetch fresh filler data every (days)</label>
+                                <input id="FillerRefreshDays" type="number" min="1" max="365" is="emby-input" />
+                            </div>
+                        </div>
+                        <div class="mem-buttons">
+                            <button is="emby-button" type="button" id="memClearFiller" class="raised emby-button"><span>Clear cached filler data</span></button>
+                        </div>
+                    </div>
+
+                    <div class="mem-card">
+                        <h3>Rules for anime
+                            <button type="button" class="mem-help-btn" data-help="hAnimeRules">?</button></h3>
+                        <div class="mem-help" id="hAnimeRules">
+                            <b>Filler list page:</b> the end of the series' address on the filler website, e.g. "one-piece" for
+                            animefillerlist.com/shows/one-piece. Leave empty to find it automatically from the title; fill it in if
+                            the automatic match fails (the report shows where filler data came from).<br>
+                            <b>Manual filler:</b> filler episodes by absolute number, e.g. "26, 97-106". When filled in, it is used
+                            instead of the website.
+                        </div>
+                        <div data-adder="anime"></div>
+                        <div style="overflow-x:auto;margin-top:1em">
+                            <table>
+                                <thead>
+                                <tr>
+                                    <th>Anime</th>
+                                    <th>Never mark</th>
+                                    <th>Specials</th>
+                                    <th>Specials that count</th>
+                                    <th>Missing filler</th>
+                                    <th>Filler list page</th>
+                                    <th>Manual filler</th>
+                                    <th></th>
+                                </tr>
+                                </thead>
+                                <tbody id="memRulesAnime"></tbody>
+                            </table>
+                        </div>
+                        <div class="mem-specials-panel" data-specials="anime"></div>
+                    </div>
+                </div>
+
+                <div class="mem-save-bar">
                     <button is="emby-button" type="submit" class="raised button-submit block emby-button">
                         <span>Save</span>
                     </button>
@@ -301,17 +452,19 @@
             var page = document.querySelector('#MemConfigPage');
             var rules = [];
             var sonarrSeries = [];
+            var pollTimer = null;
 
             var textFields = ['SonarrUrl', 'SonarrApiKey', 'FillerSourceUrl', 'SeriesBannerText', 'SeasonBannerText'];
-            var numberFields = ['GracePeriodWeeks', 'FillerRefreshDays'];
+            var numberFields = ['GracePeriodAmount', 'FillerRefreshDays'];
             var rangeFields = ['FilterOpacity', 'BannerOpacity', 'BannerSizePercent'];
             var colorFields = ['FilterColor', 'BannerColor', 'TextColor'];
-            var checkFields = ['OnlyMonitoredSeries', 'ApplyGraceToEndedShows', 'RunAfterLibraryScan', 'AnimeEnabled',
-                'CountMissingFiller', 'TreatMixedAsFiller', 'FillerLookupEnabled', 'MarkingEnabled', 'MarkSeries',
-                'MarkSeasons', 'Grayscale', 'FilterEnabled', 'BannerEnabled'];
-            var selectFields = ['SpecialsMode', 'SpecialsSource', 'BannerPosition'];
+            var checkFields = ['OnlyMonitoredSeries', 'ApplyGraceToEndedShows', 'RunAfterLibraryScan', 'ReactToLibraryChanges',
+                'ShowInMenu', 'AnimeEnabled', 'CountMissingFiller', 'TreatMixedAsFiller', 'FillerLookupEnabled',
+                'MarkingEnabled', 'MarkSeries', 'MarkSeasons', 'Grayscale', 'FilterEnabled', 'BannerEnabled'];
+            var selectFields = ['SpecialsMode', 'SpecialsSource', 'BannerPosition', 'GracePeriodUnit', 'Schedule'];
 
             function $(id) { return page.querySelector('#' + id); }
+            function all(sel) { return Array.prototype.slice.call(page.querySelectorAll(sel)); }
 
             function esc(s) {
                 return String(s === null || s === undefined ? '' : s)
@@ -339,6 +492,27 @@
                 });
             }
 
+            // ---------------- Tabs & help ----------------
+
+            all('.mem-tab').forEach(function (tab) {
+                tab.addEventListener('click', function () {
+                    var name = tab.getAttribute('data-tab');
+                    all('.mem-tab').forEach(function (t) { t.classList.toggle('active', t === tab); });
+                    all('.mem-panel').forEach(function (p) { p.classList.toggle('active', p.getAttribute('data-panel') === name); });
+                    if (name === 'status') { loadReport(); }
+                });
+            });
+
+            page.addEventListener('click', function (e) {
+                var btn = e.target.closest('.mem-help-btn');
+                if (!btn) { return; }
+                e.preventDefault();
+                var help = $(btn.getAttribute('data-help'));
+                if (help) { help.classList.toggle('open'); }
+            });
+
+            // ---------------- Form <-> config ----------------
+
             function updateRangeLabels() {
                 rangeFields.forEach(function (f) { $(f + 'Value').textContent = $(f).value; });
             }
@@ -360,7 +534,7 @@
                 rangeFields.forEach(function (f) { $(f).value = config[f]; });
                 colorFields.forEach(function (f) { $(f).value = toColor(config[f]); });
                 checkFields.forEach(function (f) { $(f).checked = !!config[f]; });
-                selectFields.forEach(function (f) { $(f).value = config[f]; });
+                selectFields.forEach(function (f) { if (config[f] !== undefined && config[f] !== null) { $(f).value = config[f]; } });
                 rules = (config.SeriesRules || []).map(function (r) { return Object.assign({}, r); });
                 renderRules();
                 updateRangeLabels();
@@ -378,82 +552,222 @@
                 }).join('');
             }
 
-            function renderRules() {
-                var body = $('memRules');
-                if (rules.length === 0) {
-                    body.innerHTML = '<tr><td colspan="8" class="mem-small">No rules yet.</td></tr>';
-                    return;
-                }
-                body.innerHTML = rules.map(function (r, i) {
-                    return '<tr data-i="' + i + '">' +
-                        '<td>' + esc(r.Title || ('TVDB ' + r.TvdbId)) + '</td>' +
-                        '<td><input type="checkbox" data-f="IgnoreSeries"' + (r.IgnoreSeries ? ' checked' : '') + '></td>' +
-                        '<td><select data-f="Specials">' + options([['Default', 'Default'], ['Include', 'Include'], ['Exclude', 'Exclude']], r.Specials) + '</select></td>' +
-                        '<td><input type="text" data-f="SpecialEpisodes" value="' + esc(r.SpecialEpisodes) + '"></td>' +
-                        '<td><select data-f="Filler">' + options([['Default', 'Default'], ['Count', 'Count missing filler'], ['Ignore', 'Ignore missing filler']], r.Filler) + '</select></td>' +
-                        '<td><input type="text" data-f="FillerSlug" value="' + esc(r.FillerSlug) + '"></td>' +
-                        '<td><input type="text" data-f="ManualFiller" value="' + esc(r.ManualFiller) + '"></td>' +
-                        '<td><button type="button" is="emby-button" class="emby-button" data-remove="' + i + '">Remove</button></td>' +
-                        '</tr>';
-                }).join('');
+            var specialsOptions = [['Default', 'Default'], ['Include', 'Include'], ['Exclude', 'Exclude']];
+            var fillerOptions = [['Default', 'Default'], ['Count', 'Counts as missing'], ['Ignore', 'Ignored']];
+
+            function specialsCell(r, i) {
+                var summary = r.SpecialEpisodes ? esc(r.SpecialEpisodes) : '<span class="mem-small">all</span>';
+                return '<td><span>' + summary + '</span> ' +
+                    '<button type="button" class="emby-button" data-pick="' + i + '" style="padding:.2em .6em">Choose…</button></td>';
             }
 
-            $('memRules').addEventListener('change', function (e) {
-                var row = e.target.closest('tr[data-i]');
-                var field = e.target.getAttribute('data-f');
-                if (!row || !field) { return; }
-                var rule = rules[parseInt(row.getAttribute('data-i'), 10)];
-                rule[field] = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
+            function renderRules() {
+                var rows = { shows: [], anime: [] };
+                rules.forEach(function (r, i) {
+                    var common =
+                        '<td>' + esc(r.Title || ('TVDB ' + r.TvdbId)) + '</td>' +
+                        '<td><input type="checkbox" data-f="IgnoreSeries"' + (r.IgnoreSeries ? ' checked' : '') + '></td>' +
+                        '<td><select data-f="Specials">' + options(specialsOptions, r.Specials) + '</select></td>' +
+                        specialsCell(r, i);
+                    if (r.IsAnime) {
+                        rows.anime.push('<tr data-i="' + i + '">' + common +
+                            '<td><select data-f="Filler">' + options(fillerOptions, r.Filler) + '</select></td>' +
+                            '<td><input type="text" data-f="FillerSlug" placeholder="auto" value="' + esc(r.FillerSlug) + '"></td>' +
+                            '<td><input type="text" data-f="ManualFiller" placeholder="e.g. 26,97-106" value="' + esc(r.ManualFiller) + '"></td>' +
+                            '<td><button type="button" class="emby-button" data-remove="' + i + '">Remove</button></td></tr>');
+                    } else {
+                        rows.shows.push('<tr data-i="' + i + '">' + common +
+                            '<td><button type="button" class="emby-button" data-remove="' + i + '">Remove</button></td></tr>');
+                    }
+                });
+                $('memRulesShows').innerHTML = rows.shows.join('') || '<tr><td colspan="5" class="mem-small">No rules yet.</td></tr>';
+                $('memRulesAnime').innerHTML = rows.anime.join('') || '<tr><td colspan="8" class="mem-small">No rules yet.</td></tr>';
+            }
+
+            ['memRulesShows', 'memRulesAnime'].forEach(function (id) {
+                $(id).addEventListener('change', function (e) {
+                    var row = e.target.closest('tr[data-i]');
+                    var field = e.target.getAttribute('data-f');
+                    if (!row || !field) { return; }
+                    var rule = rules[parseInt(row.getAttribute('data-i'), 10)];
+                    rule[field] = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
+                });
+                $(id).addEventListener('click', function (e) {
+                    var remove = e.target.closest('[data-remove]');
+                    if (remove) {
+                        rules.splice(parseInt(remove.getAttribute('data-remove'), 10), 1);
+                        renderRules();
+                        all('.mem-specials-panel').forEach(function (p) { p.innerHTML = ''; });
+                        return;
+                    }
+                    var pick = e.target.closest('[data-pick]');
+                    if (pick) {
+                        openSpecialsPicker(parseInt(pick.getAttribute('data-pick'), 10));
+                    }
+                });
             });
 
-            $('memRules').addEventListener('click', function (e) {
-                var btn = e.target.closest('[data-remove]');
-                if (!btn) { return; }
-                rules.splice(parseInt(btn.getAttribute('data-remove'), 10), 1);
-                renderRules();
-            });
+            // Adder: search + multi-select + rule template, one per tab.
+            function buildAdder(kind) {
+                var host = page.querySelector('[data-adder="' + kind + '"]');
+                var animeExtra = kind === 'anime'
+                    ? '<label>Missing filler <select data-t="Filler">' + options(fillerOptions, 'Default') + '</select></label>'
+                    : '';
+                host.innerHTML =
+                    '<details style="margin-top:1em"><summary><b>Add rules</b> <span class="mem-small">(pick one or more ' +
+                    (kind === 'anime' ? 'anime' : 'shows') + ' and give them the same rule)</span></summary>' +
+                    '<div style="margin-top:.6em"><input type="text" class="mem-search" placeholder="Search…" data-search></div>' +
+                    '<div class="mem-picker" data-list><span class="mem-small">Loading series from Sonarr…</span></div>' +
+                    '<div class="mem-template">' +
+                    '<label><input type="checkbox" data-t="IgnoreSeries"> Never mark</label>' +
+                    '<label>Specials <select data-t="Specials">' + options(specialsOptions, 'Default') + '</select></label>' +
+                    animeExtra +
+                    '</div>' +
+                    '<div class="mem-buttons"><button type="button" class="raised emby-button" data-add>Add selected</button></div>' +
+                    '</details>';
+                host.querySelector('[data-search]').addEventListener('input', function () { renderAdderList(kind); });
+                host.querySelector('[data-add]').addEventListener('click', function () { addSelected(kind); });
+            }
 
-            $('memLoadSeries').addEventListener('click', function () {
-                Dashboard.showLoadingMsg();
-                api('GET', 'MissingEpisodeMarker/SonarrSeries').then(function (list) {
-                    sonarrSeries = list || [];
-                    $('memSeriesPicker').innerHTML = sonarrSeries.map(function (s, i) {
-                        return '<option value="' + i + '">' + esc(s.Title) + (s.SeriesType === 'anime' ? ' (anime)' : '') + '</option>';
-                    }).join('');
-                }).catch(function (err) {
-                    Dashboard.alert('Could not load series from Sonarr: ' + err.message);
-                }).finally(function () { Dashboard.hideLoadingMsg(); });
-            });
-
-            $('memAddRule').addEventListener('click', function () {
-                var idx = $('memSeriesPicker').value;
-                var s = sonarrSeries[parseInt(idx, 10)];
-                if (!s) { Dashboard.alert('Load the series list from Sonarr and pick a series first.'); return; }
-                if (rules.some(function (r) { return r.TvdbId === s.TvdbId; })) {
-                    Dashboard.alert('There is already a rule for ' + s.Title + '.');
+            function renderAdderList(kind) {
+                var host = page.querySelector('[data-adder="' + kind + '"]');
+                var list = host.querySelector('[data-list]');
+                if (!sonarrSeries.length) {
+                    list.innerHTML = '<span class="mem-small">No series loaded. Check the Sonarr connection on the General tab.</span>';
                     return;
                 }
-                rules.push({
-                    TvdbId: s.TvdbId, Title: s.Title, IgnoreSeries: false, Specials: 'Default',
-                    SpecialEpisodes: '', Filler: 'Default', FillerSlug: '', ManualFiller: ''
+                var term = host.querySelector('[data-search]').value.trim().toLowerCase();
+                var existing = {};
+                rules.forEach(function (r) { existing[r.TvdbId] = true; });
+                var items = sonarrSeries.filter(function (s) {
+                    var isAnime = s.SeriesType === 'anime';
+                    return (kind === 'anime') === isAnime &&
+                        !existing[s.TvdbId] &&
+                        (!term || s.Title.toLowerCase().indexOf(term) !== -1);
+                });
+                list.innerHTML = items.length
+                    ? items.map(function (s) {
+                        return '<label><input type="checkbox" value="' + s.TvdbId + '"> ' + esc(s.Title) +
+                            (s.Status === 'ended' ? ' <span class="mem-badge">ended</span>' : '') + '</label>';
+                    }).join('')
+                    : '<span class="mem-small">Nothing matches (series that already have a rule are hidden).</span>';
+            }
+
+            function addSelected(kind) {
+                var host = page.querySelector('[data-adder="' + kind + '"]');
+                var chosen = Array.prototype.slice.call(host.querySelectorAll('[data-list] input:checked'))
+                    .map(function (c) { return parseInt(c.value, 10); });
+                if (!chosen.length) { Dashboard.alert('Tick at least one series in the list first.'); return; }
+                var t = function (name) { return host.querySelector('[data-t="' + name + '"]'); };
+                chosen.forEach(function (tvdbId) {
+                    var s = sonarrSeries.filter(function (x) { return x.TvdbId === tvdbId; })[0];
+                    if (!s) { return; }
+                    rules.push({
+                        TvdbId: s.TvdbId,
+                        Title: s.Title,
+                        IsAnime: s.SeriesType === 'anime',
+                        IgnoreSeries: t('IgnoreSeries').checked,
+                        Specials: t('Specials').value,
+                        SpecialEpisodes: '',
+                        Filler: t('Filler') ? t('Filler').value : 'Default',
+                        FillerSlug: '',
+                        ManualFiller: ''
+                    });
                 });
                 renderRules();
-            });
+                renderAdderList(kind);
+                Dashboard.alert(chosen.length + ' rule(s) added. Remember to Save.');
+            }
+
+            function loadSonarrSeries() {
+                return api('GET', 'MissingEpisodeMarker/SonarrSeries').then(function (list) {
+                    sonarrSeries = list || [];
+                    // Rules saved by version 0.1 don't know whether they are anime; fix that from Sonarr.
+                    var types = {};
+                    sonarrSeries.forEach(function (s) { types[s.TvdbId] = s.SeriesType === 'anime'; });
+                    rules.forEach(function (r) { if (types[r.TvdbId] !== undefined) { r.IsAnime = types[r.TvdbId]; } });
+                    renderRules();
+                    renderAdderList('shows');
+                    renderAdderList('anime');
+                    return sonarrSeries;
+                });
+            }
+
+            // ---------------- Specials picker ----------------
+
+            function openSpecialsPicker(ruleIndex) {
+                var rule = rules[ruleIndex];
+                var panel = page.querySelector('[data-specials="' + (rule.IsAnime ? 'anime' : 'shows') + '"]');
+                var chosen = {};
+                (rule.SpecialEpisodes || '').split(',').forEach(function (p) {
+                    var m = p.trim().match(/^(\d+)(?:-(\d+))?$/);
+                    if (!m) { return; }
+                    var from = parseInt(m[1], 10), to = m[2] ? parseInt(m[2], 10) : from;
+                    for (var n = from; n <= to && n - from < 2000; n++) { chosen[n] = true; }
+                });
+                var warn = $('SpecialsSource').value !== 'PluginSelection'
+                    ? '<div class="mem-help open">Note: "Which specials count" is set to "monitored in Sonarr", so this choice is only used if you switch it to "chosen in the rules".</div>'
+                    : '';
+                panel.innerHTML = '<div class="mem-card"><b>Specials of ' + esc(rule.Title) + '</b>' + warn +
+                    '<div class="mem-small">Tick the specials that should count. Nothing ticked = all specials.</div>' +
+                    '<div class="mem-picker" data-sp-list>Loading…</div>' +
+                    '<div class="mem-buttons"><button type="button" class="raised emby-button" data-sp-save>Use selection</button>' +
+                    '<button type="button" class="raised emby-button" data-sp-cancel>Close</button></div></div>';
+                panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+                api('GET', 'MissingEpisodeMarker/Specials?tvdbId=' + rule.TvdbId).then(function (eps) {
+                    var list = panel.querySelector('[data-sp-list]');
+                    if (!eps || !eps.length) { list.innerHTML = '<span class="mem-small">Sonarr lists no specials for this series.</span>'; return; }
+                    list.innerHTML = eps.map(function (e) {
+                        var date = e.AirDateUtc ? new Date(e.AirDateUtc).toLocaleDateString() : 'no date';
+                        return '<label><input type="checkbox" value="' + e.EpisodeNumber + '"' + (chosen[e.EpisodeNumber] ? ' checked' : '') + '> ' +
+                            'S00E' + (e.EpisodeNumber < 10 ? '0' : '') + e.EpisodeNumber + ' – ' + esc(e.Title || 'Untitled') +
+                            ' <span class="mem-small">(' + esc(date) + (e.HasFile ? ', have it' : '') + (e.Monitored ? ', monitored' : '') + ')</span></label>';
+                    }).join('');
+                }).catch(function (err) {
+                    panel.querySelector('[data-sp-list]').textContent = 'Could not load specials: ' + err.message;
+                });
+
+                panel.querySelector('[data-sp-save]').addEventListener('click', function () {
+                    var nums = Array.prototype.slice.call(panel.querySelectorAll('[data-sp-list] input:checked'))
+                        .map(function (c) { return parseInt(c.value, 10); })
+                        .sort(function (a, b) { return a - b; });
+                    rule.SpecialEpisodes = nums.join(',');
+                    renderRules();
+                    panel.innerHTML = '';
+                });
+                panel.querySelector('[data-sp-cancel]').addEventListener('click', function () { panel.innerHTML = ''; });
+            }
 
             // ---------------- Status / report ----------------
+
+            function formatEta(seconds) {
+                if (seconds === null || seconds === undefined) { return 'estimating time left…'; }
+                if (seconds < 60) { return 'about ' + Math.max(1, Math.round(seconds)) + ' s left'; }
+                return 'about ' + Math.round(seconds / 60) + ' min left';
+            }
 
             function renderReport(data) {
                 var status = $('memStatus');
                 var report = data.Report || {};
                 var when = report.FinishedUtc ? new Date(report.FinishedUtc).toLocaleString() : 'never';
                 status.className = 'mem-status' + (report.Success === false && report.FinishedUtc ? ' error' : '');
-                status.innerHTML = (data.IsRunning ? '<b>A check is running…</b><br>' : '') +
-                    esc(report.Message) + '<br><span class="mem-small">Last run: ' + esc(when) +
+                status.innerHTML = esc(report.Message) + '<br><span class="mem-small">Last full check: ' + esc(when) +
                     (report.SeriesNotInJellyfin ? ' · ' + report.SeriesNotInJellyfin + ' Sonarr series not found in Jellyfin' : '') + '</span>';
 
+                $('memProgressWrap').style.display = data.IsRunning ? 'block' : 'none';
+                if (data.IsRunning) {
+                    var pct = Math.round(data.Progress || 0);
+                    $('memProgressBar').style.width = pct + '%';
+                    $('memProgressText').textContent = 'Checking… ' + pct + '% · ' + formatEta(data.EtaSeconds);
+                }
+
                 var list = report.IncompleteSeries || [];
-                if (list.length === 0) { $('memReport').innerHTML = ''; return; }
-                $('memReport').innerHTML = '<table><thead><tr><th>Incomplete series</th><th>Missing</th><th>Seasons</th></tr></thead><tbody>' +
+                if (list.length === 0) {
+                    $('memReport').innerHTML = report.FinishedUtc ? 'Nothing is missing. 🎉' : 'No report yet. Run a check.';
+                    return;
+                }
+                $('memReport').innerHTML = '<table><thead><tr><th>Series</th><th>Missing</th><th>Seasons</th><th>Poster</th></tr></thead><tbody>' +
                     list.map(function (s) {
                         var seasons = Object.keys(s.MissingPerSeason || {}).map(function (k) {
                             return (k === '0' ? 'Specials' : 'S' + k) + ': ' + s.MissingPerSeason[k];
@@ -463,30 +777,39 @@
                                 (m.Title ? ' – ' + esc(m.Title) : '') + (m.IsFiller ? ' [filler]' : '');
                         }).join('<br>');
                         var more = s.MissingCount > (s.Missing || []).length ? '<br>…and more' : '';
-                        return '<tr><td><details><summary>' + esc(s.Title) + (s.IsAnime ? ' <span class="mem-small">(anime)</span>' : '') +
+                        var poster = s.PosterStatus || '';
+                        var posterHtml = poster === 'Marked' ? '✔ Marked' : (poster ? '<span style="color:#ff8a80">' + esc(poster) + '</span>' : '');
+                        return '<tr><td><details><summary>' + esc(s.Title) + (s.IsAnime ? ' <span class="mem-badge">anime</span>' : '') +
                             '</summary><div class="mem-small">' + eps + more +
                             (s.IgnoredCount ? '<br>' + s.IgnoredCount + ' more missing but ignored (grace period, filler or specials)' : '') +
-                            '</div></details></td><td>' + s.MissingCount + '</td><td>' + esc(seasons) + '</td></tr>';
+                            (s.FillerSource ? '<br>Filler data: ' + esc(s.FillerSource) : '') +
+                            '</div></details></td><td>' + s.MissingCount + '</td><td>' + esc(seasons) + '</td><td>' + posterHtml + '</td></tr>';
                     }).join('') + '</tbody></table>';
             }
 
             function loadReport() {
-                return api('GET', 'MissingEpisodeMarker/Report').then(renderReport).catch(function (err) {
+                return api('GET', 'MissingEpisodeMarker/Report').then(function (data) {
+                    renderReport(data);
+                    clearTimeout(pollTimer);
+                    if (data.IsRunning) { pollTimer = setTimeout(loadReport, 2000); }
+                }).catch(function (err) {
                     $('memStatus').textContent = 'Could not load the report: ' + err.message;
                 });
             }
 
             $('memRunNow').addEventListener('click', function () {
                 api('POST', 'MissingEpisodeMarker/Run').then(function () {
-                    Dashboard.alert('Check started. Click "Refresh report" in a moment to see the result.');
-                    setTimeout(loadReport, 1500);
+                    $('memProgressWrap').style.display = 'block';
+                    $('memProgressBar').style.width = '0%';
+                    $('memProgressText').textContent = 'Starting…';
+                    setTimeout(loadReport, 1000);
                 }).catch(function (err) { Dashboard.alert(err.message); });
             });
 
             $('memRefreshReport').addEventListener('click', loadReport);
 
             $('memRemoveAll').addEventListener('click', function () {
-                if (!window.confirm('Restore every original poster now? Markers come back on the next run unless marking is turned off.')) {
+                if (!window.confirm('Restore every original poster now? Markers come back on the next check unless marking is turned off.')) {
                     return;
                 }
                 Dashboard.showLoadingMsg();
@@ -497,7 +820,7 @@
 
             $('memClearFiller').addEventListener('click', function () {
                 api('POST', 'MissingEpisodeMarker/ClearFillerCache').then(function () {
-                    Dashboard.alert('Filler cache cleared. Fresh data is fetched on the next run.');
+                    Dashboard.alert('Filler cache cleared. Fresh data is fetched on the next check.');
                 }).catch(function (err) { Dashboard.alert(err.message); });
             });
 
@@ -505,9 +828,7 @@
 
             $('memTestSonarr').addEventListener('click', function () {
                 $('memSonarrResult').textContent = 'Testing…';
-                saveConfig(false).then(function () {
-                    return api('GET', 'MissingEpisodeMarker/SonarrSeries');
-                }).then(function (list) {
+                saveConfig(false).then(loadSonarrSeries).then(function (list) {
                     $('memSonarrResult').textContent = 'Connected. Sonarr has ' + (list || []).length + ' series.';
                 }).catch(function (err) {
                     $('memSonarrResult').textContent = 'Failed: ' + err.message;
@@ -555,14 +876,27 @@
             }
 
             rangeFields.forEach(function (f) { $(f).addEventListener('input', updateRangeLabels); });
+            buildAdder('shows');
+            buildAdder('anime');
 
             page.addEventListener('pageshow', function () {
                 Dashboard.showLoadingMsg();
                 ApiClient.getPluginConfiguration(pluginId).then(function (config) {
                     fillForm(config);
-                    return loadReport();
+                    loadReport();
+                    if (config.SonarrApiKey) {
+                        loadSonarrSeries().catch(function () {
+                            renderAdderList('shows');
+                            renderAdderList('anime');
+                        });
+                    } else {
+                        renderAdderList('shows');
+                        renderAdderList('anime');
+                    }
                 }).finally(function () { Dashboard.hideLoadingMsg(); });
             });
+
+            page.addEventListener('pagehide', function () { clearTimeout(pollTimer); });
 
             $('MemConfigForm').addEventListener('submit', function (e) {
                 e.preventDefault();
