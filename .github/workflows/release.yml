@@ -1,11 +1,16 @@
 name: Release
 
-# Push a tag like v0.1.0.0 to build the plugin, publish a GitHub release
-# and add the new version to manifest.json (the plugin repository Jellyfin reads).
+# Publish a GitHub release with a tag like v0.1.0.0 to build the plugin,
+# attach the zip to that release and add the new version to manifest.json
+# (the plugin repository Jellyfin reads).
 
 on:
-  push:
-    tags: ['v*']
+  release:
+    types: [published]
+
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
 
 permissions:
   contents: write

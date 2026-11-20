@@ -61,13 +61,10 @@ Uninstalling restores the original posters automatically. To be extra safe, clic
 ## Releasing a new version (maintainers)
 
 1. Bump `version` in `build.yaml` (four numbers, e.g. `0.2.0.0`) and update `changelog`.
-2. Commit, then push a tag with the same number:
-   ```
-   git tag v0.2.0.0
-   git push origin v0.2.0.0
-   ```
-3. The **Release** workflow builds the plugin, publishes a GitHub release and adds
-   the version to `manifest.json`. Jellyfin then offers the update.
+2. On GitHub: **Releases → Draft a new release**, create the tag `v0.2.0.0`
+   (same number with a `v`), and click **Publish release**.
+3. The **Release** workflow builds the plugin, attaches the zip to the release and
+   adds the version to `manifest.json`. Jellyfin then offers the update.
 
 ## License
 
