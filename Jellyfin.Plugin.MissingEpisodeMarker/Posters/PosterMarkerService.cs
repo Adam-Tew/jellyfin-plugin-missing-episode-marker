@@ -59,6 +59,34 @@ public class PosterMarkerService
         }
     }
 
+    /// <summary>Gets what the plugin remembers about a marked item.</summary>
+    /// <param name="itemId">The item id.</param>
+    /// <returns>The entry, or null when the item is not marked.</returns>
+    public MarkerEntry? GetEntry(Guid itemId)
+    {
+        lock (_stateLock)
+        {
+            return LoadState().TryGetValue(itemId, out var entry) ? entry : null;
+        }
+    }
+
+    /// <summary>
+    /// Checks whether Jellyfin has swapped a marked poster for another image (e.g. after a metadata refresh).
+    /// </summary>
+    /// <param name="item">The item.</param>
+    /// <returns>True when the item should be marked but no longer shows the marked copy.</returns>
+    public bool WasReplaced(BaseItem item)
+    {
+        var entry = GetEntry(item.Id);
+        if (entry is null)
+        {
+            return false;
+        }
+
+        var image = item.GetImageInfo(ImageType.Primary, 0);
+        return image is null || !PathEquals(image.Path, entry.MarkedPath);
+    }
+
     /// <summary>
     /// Marks an item's poster (or updates the marker if settings/text changed).
     /// </summary>
@@ -66,14 +94,15 @@ public class PosterMarkerService
     /// <param name="text">Banner text.</param>
     /// <param name="config">Plugin configuration.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>True when the item is marked afterwards.</returns>
-    public async Task<bool> ApplyAsync(BaseItem item, string text, PluginConfiguration config, CancellationToken cancellationToken)
+    /// <returns>What happened.</returns>
+    public async Task<ApplyResult> ApplyAsync(BaseItem item, string text, PluginConfiguration config, CancellationToken cancellationToken)
     {
         var image = item.GetImageInfo(ImageType.Primary, 0);
         if (image is null)
         {
             // No poster at all (e.g. a season using the series poster). Nothing to mark.
-            return false;
+            _logger.LogInformation("{Name} has no poster image of its own; nothing to mark", item.Name);
+            return ApplyResult.NoPoster;
         }
 
         MarkerEntry? entry;
@@ -92,8 +121,8 @@ public class PosterMarkerService
             // First time, or Jellyfin replaced the poster since we marked it (e.g. a metadata refresh).
             if (!image.IsLocalFile)
             {
-                _logger.LogDebug("Poster of {Name} is not a local file, skipping", item.Name);
-                return false;
+                _logger.LogInformation("Poster of {Name} is not a local file ({Path}); cannot mark it", item.Name, image.Path);
+                return ApplyResult.NotLocal;
             }
 
             if (IsInsidePosterDirectory(image.Path))
@@ -103,7 +132,7 @@ public class PosterMarkerService
                 _logger.LogWarning(
                     "Poster of {Name} is a marked copy with no known original; refresh its metadata to get the original back",
                     item.Name);
-                return false;
+                return ApplyResult.OriginalUnknown;
             }
 
             originalPath = image.Path;
@@ -116,7 +145,7 @@ public class PosterMarkerService
         if (!File.Exists(originalPath))
         {
             _logger.LogWarning("Original poster of {Name} not found at {Path}", item.Name, originalPath);
-            return false;
+            return ApplyResult.OriginalMissing;
         }
 
         var signature = ComputeSignature(originalPath, config, text);
@@ -125,7 +154,16 @@ public class PosterMarkerService
             && PathEquals(image.Path, entry.MarkedPath)
             && File.Exists(entry.MarkedPath))
         {
-            return true; // Already up to date.
+            if (entry.Text != text)
+            {
+                lock (_stateLock)
+                {
+                    entry.Text = text;
+                    SaveState();
+                }
+            }
+
+            return ApplyResult.Marked; // Already up to date.
         }
 
         var markedPath = Path.Combine(
@@ -139,7 +177,7 @@ public class PosterMarkerService
         catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException)
         {
             _logger.LogError(ex, "Could not render marked poster for {Name}", item.Name);
-            return false;
+            return ApplyResult.RenderFailed;
         }
 
         image.Path = markedPath;
@@ -154,6 +192,7 @@ public class PosterMarkerService
                 MarkedPath = markedPath,
                 Signature = signature,
                 ItemName = item.Name ?? string.Empty,
+                Text = text,
             };
             SaveState();
         }
@@ -164,7 +203,7 @@ public class PosterMarkerService
         }
 
         _logger.LogInformation("Marked poster of {Name}", item.Name);
-        return true;
+        return ApplyResult.Marked;
     }
 
     /// <summary>
@@ -370,5 +409,30 @@ public class PosterMarkerService
 
         /// <summary>Gets or sets the item name (for troubleshooting).</summary>
         public string ItemName { get; set; } = string.Empty;
+
+        /// <summary>Gets or sets the banner text the poster was marked with.</summary>
+        public string Text { get; set; } = string.Empty;
     }
+}
+
+/// <summary>Outcome of trying to mark a poster.</summary>
+public enum ApplyResult
+{
+    /// <summary>The poster is marked.</summary>
+    Marked = 0,
+
+    /// <summary>The item has no poster of its own.</summary>
+    NoPoster = 1,
+
+    /// <summary>The poster is a remote URL, not a file on the server.</summary>
+    NotLocal = 2,
+
+    /// <summary>The original poster file no longer exists.</summary>
+    OriginalMissing = 3,
+
+    /// <summary>The poster points at a marked copy whose original is unknown.</summary>
+    OriginalUnknown = 4,
+
+    /// <summary>Drawing the marker failed.</summary>
+    RenderFailed = 5,
 }

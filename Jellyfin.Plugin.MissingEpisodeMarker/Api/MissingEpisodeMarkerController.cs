@@ -61,7 +61,13 @@ public class MissingEpisodeMarkerController : ControllerBase
     [HttpGet("Report")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     public ActionResult<object> GetReport()
-        => Ok(new { IsRunning = _runner.IsRunning, Report = _runner.LastReport });
+        => Ok(new
+        {
+            IsRunning = _runner.IsRunning,
+            Progress = _runner.Progress,
+            EtaSeconds = _runner.EtaSeconds,
+            Report = _runner.LastReport,
+        });
 
     /// <summary>Starts a run now (as the scheduled task, so progress shows in Scheduled Tasks).</summary>
     /// <returns>No content.</returns>
@@ -102,6 +108,33 @@ public class MissingEpisodeMarkerController : ControllerBase
                 s.SeriesType,
                 s.Status,
                 s.Monitored,
+            }));
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            return StatusCode(StatusCodes.Status502BadGateway, new { Error = ex.Message });
+        }
+    }
+
+    /// <summary>Lists the specials (season 0) of a series, for the specials picker.</summary>
+    /// <param name="tvdbId">TVDB id of the series.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The specials.</returns>
+    [HttpGet("Specials")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status502BadGateway)]
+    public async Task<ActionResult<object>> GetSpecials([FromQuery] int tvdbId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var specials = await _runner.GetSpecialsAsync(tvdbId, cancellationToken).ConfigureAwait(false);
+            return Ok(specials.Select(e => new
+            {
+                e.EpisodeNumber,
+                e.Title,
+                e.AirDateUtc,
+                e.Monitored,
+                e.HasFile,
             }));
         }
         catch (Exception ex) when (ex is not OperationCanceledException)

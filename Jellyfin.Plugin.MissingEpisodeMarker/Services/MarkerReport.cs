@@ -53,6 +53,9 @@ public class SeriesReport
     /// <summary>Gets or sets where filler data came from.</summary>
     public string? FillerSource { get; set; }
 
+    /// <summary>Gets or sets what happened to the series poster (Marked, NoPoster, NotLocal, ...).</summary>
+    public string PosterStatus { get; set; } = string.Empty;
+
     /// <summary>Gets the missing count per season.</summary>
     public Dictionary<int, int> MissingPerSeason { get; } = new Dictionary<int, int>();
 

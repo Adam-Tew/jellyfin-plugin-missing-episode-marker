@@ -31,7 +31,7 @@ public class MarkMissingEpisodesTask : IScheduledTask
     public string Key => "MissingEpisodeMarkerRun";
 
     /// <inheritdoc />
-    public string Description => "Asks Sonarr which episodes are missing and updates the markers on series and season posters.";
+    public string Description => "Asks Sonarr which episodes are missing and updates the markers on series and season posters. How often it runs is set in the plugin settings.";
 
     /// <inheritdoc />
     public string Category => "Missing Episode Marker";
@@ -46,7 +46,7 @@ public class MarkMissingEpisodesTask : IScheduledTask
         yield return new TaskTriggerInfo
         {
             Type = TaskTriggerInfoType.IntervalTrigger,
-            IntervalTicks = TimeSpan.FromHours(6).Ticks,
+            IntervalTicks = TimeSpan.FromDays(1).Ticks,
         };
     }
 }

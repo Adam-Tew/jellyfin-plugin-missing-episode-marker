@@ -84,9 +84,8 @@ public static class MissingEpisodeDetector
             _ => config.CountMissingFiller,
         };
 
-        var graceWeeks = Math.Max(0, config.GracePeriodWeeks);
         var applyGrace = !series.IsEnded || config.ApplyGraceToEndedShows;
-        var graceCutoff = nowUtc - TimeSpan.FromDays(7 * graceWeeks);
+        var graceCutoff = GraceCutoff(nowUtc, config.GracePeriodAmount, config.GracePeriodUnit);
 
         foreach (var ep in episodes.OrderBy(e => e.SeasonNumber).ThenBy(e => e.EpisodeNumber))
         {
@@ -168,6 +167,23 @@ public static class MissingEpisodeDetector
         }
 
         return result;
+    }
+
+    /// <summary>Works out the latest air date that is past the grace period.</summary>
+    /// <param name="nowUtc">Current time.</param>
+    /// <param name="amount">Grace amount.</param>
+    /// <param name="unit">Grace unit.</param>
+    /// <returns>Episodes that aired after this moment are still within the grace period.</returns>
+    public static DateTime GraceCutoff(DateTime nowUtc, int amount, TimeUnit unit)
+    {
+        var n = Math.Clamp(amount, 0, 1000);
+        return unit switch
+        {
+            TimeUnit.Days => nowUtc.AddDays(-n),
+            TimeUnit.Months => nowUtc.AddMonths(-n),
+            TimeUnit.Years => nowUtc.AddYears(-Math.Min(n, 100)),
+            _ => nowUtc.AddDays(-7.0 * n),
+        };
     }
 
     /// <summary>Resolves whether specials count for a series.</summary>

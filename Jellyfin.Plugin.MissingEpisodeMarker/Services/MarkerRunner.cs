@@ -19,7 +19,7 @@ using Microsoft.Extensions.Logging;
 namespace Jellyfin.Plugin.MissingEpisodeMarker.Services;
 
 /// <summary>
-/// Runs a full check: asks Sonarr, decides what is incomplete, and marks/restores posters.
+/// Runs checks: asks Sonarr, decides what is incomplete, and marks/restores posters.
 /// </summary>
 public class MarkerRunner
 {
@@ -31,6 +31,7 @@ public class MarkerRunner
     private readonly PosterMarkerService _posters;
     private readonly ILogger<MarkerRunner> _logger;
     private readonly SemaphoreSlim _runLock = new(1, 1);
+    private readonly object _reportLock = new();
 
     /// <summary>
     /// Initializes a new instance of the <see cref="MarkerRunner"/> class.
@@ -54,22 +55,56 @@ public class MarkerRunner
         _logger = logger;
     }
 
-    /// <summary>Gets the report of the last run.</summary>
+    /// <summary>Gets the report of the last full run (kept up to date by single-series rechecks).</summary>
     public MarkerReport LastReport { get; private set; } = new MarkerReport();
 
-    /// <summary>Gets a value indicating whether a run is in progress.</summary>
-    public bool IsRunning => _runLock.CurrentCount == 0;
+    /// <summary>Gets a value indicating whether a full run is in progress.</summary>
+    public bool IsRunning { get; private set; }
 
-    /// <summary>Runs a full check. If a run is already in progress, this waits for it.</summary>
+    /// <summary>Gets the progress of the current full run, 0-100.</summary>
+    public double Progress { get; private set; }
+
+    /// <summary>Gets when the current full run started (UTC).</summary>
+    public DateTime? RunStartedUtc { get; private set; }
+
+    /// <summary>Gets the estimated seconds left of the current run, if it can be estimated.</summary>
+    public double? EtaSeconds
+    {
+        get
+        {
+            if (!IsRunning || RunStartedUtc is null || Progress < 3)
+            {
+                return null;
+            }
+
+            var elapsed = (DateTime.UtcNow - RunStartedUtc.Value).TotalSeconds;
+            return Math.Max(0, elapsed * (100 - Progress) / Progress);
+        }
+    }
+
+    /// <summary>Runs a full check. If another check is in progress, this waits for it.</summary>
     /// <param name="progress">Progress (0-100).</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A task.</returns>
     public async Task RunAsync(IProgress<double> progress, CancellationToken cancellationToken)
     {
         await _runLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        IsRunning = true;
+        Progress = 0;
+        RunStartedUtc = DateTime.UtcNow;
+        var tracking = new ActionProgress(p =>
+        {
+            Progress = p;
+            progress.Report(p);
+        });
+
         try
         {
-            LastReport = await RunInternalAsync(progress, cancellationToken).ConfigureAwait(false);
+            var report = await RunInternalAsync(tracking, cancellationToken).ConfigureAwait(false);
+            lock (_reportLock)
+            {
+                LastReport = report;
+            }
         }
         catch (OperationCanceledException)
         {
@@ -78,13 +113,144 @@ public class MarkerRunner
         catch (Exception ex)
         {
             _logger.LogError(ex, "Missing Episode Marker run failed");
-            LastReport = new MarkerReport
+            lock (_reportLock)
             {
-                FinishedUtc = DateTime.UtcNow,
-                Success = false,
-                Message = ex.Message,
-                PostersMarked = _posters.GetMarkedItemIds().Count,
-            };
+                LastReport = new MarkerReport
+                {
+                    FinishedUtc = DateTime.UtcNow,
+                    Success = false,
+                    Message = ex.Message,
+                    PostersMarked = _posters.GetMarkedItemIds().Count,
+                };
+            }
+        }
+        finally
+        {
+            IsRunning = false;
+            Progress = 0;
+            RunStartedUtc = null;
+            _runLock.Release();
+        }
+    }
+
+    /// <summary>
+    /// Rechecks a single series (e.g. after episodes were added or removed) and updates its markers.
+    /// </summary>
+    /// <param name="jellyfinSeriesId">The Jellyfin series id.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task.</returns>
+    public async Task RecheckSeriesAsync(Guid jellyfinSeriesId, CancellationToken cancellationToken)
+    {
+        var config = GetConfig();
+        if (!config.MarkingEnabled || string.IsNullOrWhiteSpace(config.SonarrApiKey))
+        {
+            return;
+        }
+
+        if (_libraryManager.GetItemById(jellyfinSeriesId) is not Series jfSeries)
+        {
+            return;
+        }
+
+        await _runLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var sonarrSeries = await _sonarr.GetSeriesAsync(config.SonarrUrl, config.SonarrApiKey, cancellationToken).ConfigureAwait(false);
+            var index = BuildProviderIndex(new BaseItem[] { jfSeries });
+            var match = sonarrSeries.FirstOrDefault(s => FindJellyfinSeries(index, s).Count > 0);
+
+            var seasons = GetSeasons(jfSeries.Id);
+            var desired = new Dictionary<Guid, (BaseItem Item, string Text)>();
+            SeriesReport? seriesReport = null;
+
+            if (match is not null && IsChecked(config, match, GetRules(config)))
+            {
+                (seriesReport, var seriesDesired) = await ProcessSeriesAsync(
+                    match, new List<BaseItem> { jfSeries }, seasons, config, GetRules(config), DateTime.UtcNow, cancellationToken).ConfigureAwait(false);
+                foreach (var (id, value) in seriesDesired)
+                {
+                    desired[id] = value;
+                }
+            }
+
+            if (seriesReport is not null)
+            {
+                await ApplyDesiredAsync(desired, config, seriesReport, jfSeries.Id, cancellationToken).ConfigureAwait(false);
+            }
+
+            // Restore this series' items that should no longer be marked.
+            var ownItems = new HashSet<Guid>(seasons.Select(s => s.Id)) { jfSeries.Id };
+            foreach (var id in _posters.GetMarkedItemIds())
+            {
+                if (ownItems.Contains(id) && !desired.ContainsKey(id))
+                {
+                    await _posters.RestoreAsync(id, cancellationToken).ConfigureAwait(false);
+                }
+            }
+
+            // Keep the report in step.
+            lock (_reportLock)
+            {
+                var report = LastReport;
+                if (match is not null)
+                {
+                    report.IncompleteSeries.RemoveAll(r => r.TvdbId == match.TvdbId);
+                }
+
+                if (seriesReport is not null)
+                {
+                    report.IncompleteSeries.Add(seriesReport);
+                    report.IncompleteSeries.Sort((a, b) => string.Compare(a.Title, b.Title, StringComparison.OrdinalIgnoreCase));
+                }
+
+                report.PostersMarked = _posters.GetMarkedItemIds().Count;
+            }
+
+            _logger.LogInformation(
+                "Rechecked {Name}: {State}",
+                jfSeries.Name,
+                seriesReport is null ? "complete" : seriesReport.MissingCount + " missing");
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogError(ex, "Could not recheck series {Name}", jfSeries.Name);
+        }
+        finally
+        {
+            _runLock.Release();
+        }
+    }
+
+    /// <summary>
+    /// Puts a marker back on an item whose poster Jellyfin replaced (e.g. after a metadata refresh).
+    /// </summary>
+    /// <param name="itemId">The item id.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>A task.</returns>
+    public async Task ReapplyAsync(Guid itemId, CancellationToken cancellationToken)
+    {
+        var config = GetConfig();
+        var entry = _posters.GetEntry(itemId);
+        if (!config.MarkingEnabled || entry is null)
+        {
+            return;
+        }
+
+        var item = _libraryManager.GetItemById(itemId);
+        if (item is null || !_posters.WasReplaced(item))
+        {
+            return;
+        }
+
+        await _runLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            _logger.LogInformation("Poster of {Name} was replaced by Jellyfin; putting the marker back", item.Name);
+            await _posters.ApplyAsync(item, entry.Text, config, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogError(ex, "Could not re-apply marker for {Name}", item.Name);
         }
         finally
         {
@@ -101,12 +267,15 @@ public class MarkerRunner
         try
         {
             await _posters.RestoreAllAsync(cancellationToken).ConfigureAwait(false);
-            LastReport = new MarkerReport
+            lock (_reportLock)
             {
-                FinishedUtc = DateTime.UtcNow,
-                Success = true,
-                Message = "All markers removed. They come back on the next run unless marking is turned off.",
-            };
+                LastReport = new MarkerReport
+                {
+                    FinishedUtc = DateTime.UtcNow,
+                    Success = true,
+                    Message = "All markers removed. They come back on the next check unless marking is turned off.",
+                };
+            }
         }
         finally
         {
@@ -124,11 +293,167 @@ public class MarkerRunner
         return series.OrderBy(s => s.Title, StringComparer.OrdinalIgnoreCase).ToList();
     }
 
+    /// <summary>Lists the specials (season 0) of a series in Sonarr.</summary>
+    /// <param name="tvdbId">TVDB id.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The specials, sorted by episode number.</returns>
+    public async Task<List<SonarrEpisode>> GetSpecialsAsync(int tvdbId, CancellationToken cancellationToken)
+    {
+        var config = GetConfig();
+        var series = await _sonarr.GetSeriesAsync(config.SonarrUrl, config.SonarrApiKey, cancellationToken).ConfigureAwait(false);
+        var match = series.FirstOrDefault(s => s.TvdbId == tvdbId);
+        if (match is null)
+        {
+            return new List<SonarrEpisode>();
+        }
+
+        var episodes = await _sonarr.GetEpisodesAsync(config.SonarrUrl, config.SonarrApiKey, match.Id, cancellationToken).ConfigureAwait(false);
+        return episodes.Where(e => e.SeasonNumber == 0).OrderBy(e => e.EpisodeNumber).ToList();
+    }
+
     private static PluginConfiguration GetConfig()
         => Plugin.Instance?.Configuration ?? new PluginConfiguration();
 
+    private static Dictionary<int, SeriesRule> GetRules(PluginConfiguration config)
+        => config.SeriesRules
+            .Where(r => r.TvdbId > 0)
+            .GroupBy(r => r.TvdbId)
+            .ToDictionary(g => g.Key, g => g.First());
+
+    private static bool IsChecked(PluginConfiguration config, SonarrSeries series, Dictionary<int, SeriesRule> rules)
+    {
+        if (config.OnlyMonitoredSeries && !series.Monitored)
+        {
+            return false;
+        }
+
+        if (series.IsAnime && !config.AnimeEnabled)
+        {
+            return false;
+        }
+
+        return !(rules.TryGetValue(series.TvdbId, out var rule) && rule.IgnoreSeries);
+    }
+
     private static string FormatText(string template, int count)
         => (template ?? string.Empty).Replace("{count}", count.ToString(CultureInfo.InvariantCulture), StringComparison.OrdinalIgnoreCase);
+
+    private static string Describe(ApplyResult result) => result switch
+    {
+        ApplyResult.Marked => "Marked",
+        ApplyResult.NoPoster => "No poster image in Jellyfin",
+        ApplyResult.NotLocal => "Poster is not a file on the server",
+        ApplyResult.OriginalMissing => "Poster file is missing",
+        ApplyResult.OriginalUnknown => "Refresh this series' metadata once",
+        ApplyResult.RenderFailed => "Could not draw the marker (see log)",
+        _ => result.ToString(),
+    };
+
+    private List<Season> GetSeasons(Guid seriesId)
+        => _libraryManager.GetItemList(new InternalItemsQuery
+            {
+                IncludeItemTypes = [BaseItemKind.Season],
+                Recursive = true,
+                IsVirtualItem = false,
+            })
+            .OfType<Season>()
+            .Where(s => s.SeriesId == seriesId)
+            .ToList();
+
+    private async Task<(SeriesReport? Report, Dictionary<Guid, (BaseItem Item, string Text)> Desired)> ProcessSeriesAsync(
+        SonarrSeries series,
+        List<BaseItem> matches,
+        List<Season> seasonsOfMatches,
+        PluginConfiguration config,
+        Dictionary<int, SeriesRule> rules,
+        DateTime now,
+        CancellationToken cancellationToken)
+    {
+        var desired = new Dictionary<Guid, (BaseItem Item, string Text)>();
+        rules.TryGetValue(series.TvdbId, out var rule);
+
+        var episodes = await _sonarr.GetEpisodesAsync(config.SonarrUrl, config.SonarrApiKey, series.Id, cancellationToken).ConfigureAwait(false);
+
+        FillerInfo? filler = null;
+        if (series.IsAnime && NeedsFillerData(config, rule))
+        {
+            filler = await _filler.GetFillerAsync(config, series.Title, rule, cancellationToken).ConfigureAwait(false);
+        }
+
+        var result = MissingEpisodeDetector.Detect(series, episodes, config, rule, filler, now);
+        if (!result.IsIncomplete)
+        {
+            return (null, desired);
+        }
+
+        var seriesReport = new SeriesReport
+        {
+            Title = series.Title,
+            TvdbId = series.TvdbId,
+            Status = series.Status,
+            IsAnime = series.IsAnime,
+            MissingCount = result.Missing.Count,
+            IgnoredCount = result.IgnoredCount,
+            FillerSource = filler?.Source,
+            PosterStatus = config.MarkSeries ? string.Empty : "Series posters are not marked (setting)",
+        };
+        foreach (var (season, count) in result.MissingPerSeason)
+        {
+            seriesReport.MissingPerSeason[season] = count;
+        }
+
+        seriesReport.Missing.AddRange(result.Missing.Take(MaxEpisodesInReport));
+
+        foreach (var jfSeries in matches)
+        {
+            if (config.MarkSeries)
+            {
+                desired[jfSeries.Id] = (jfSeries, FormatText(config.SeriesBannerText, result.Missing.Count));
+            }
+
+            if (config.MarkSeasons)
+            {
+                foreach (var season in seasonsOfMatches.Where(s => s.SeriesId == jfSeries.Id))
+                {
+                    if (season.IndexNumber is int number
+                        && result.MissingPerSeason.TryGetValue(number, out var seasonCount))
+                    {
+                        desired[season.Id] = (season, FormatText(config.SeasonBannerText, seasonCount));
+                    }
+                }
+            }
+        }
+
+        return (seriesReport, desired);
+    }
+
+    private async Task ApplyDesiredAsync(
+        Dictionary<Guid, (BaseItem Item, string Text)> desired,
+        PluginConfiguration config,
+        SeriesReport? seriesReport,
+        Guid? seriesItemId,
+        CancellationToken cancellationToken)
+    {
+        foreach (var (id, (item, text)) in desired)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            ApplyResult result;
+            try
+            {
+                result = await _posters.ApplyAsync(item, text, config, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _logger.LogError(ex, "Could not mark poster for {Name}", item.Name);
+                result = ApplyResult.RenderFailed;
+            }
+
+            if (seriesReport is not null && seriesItemId == id)
+            {
+                seriesReport.PosterStatus = Describe(result);
+            }
+        }
+    }
 
     private async Task<MarkerReport> RunInternalAsync(IProgress<double> progress, CancellationToken cancellationToken)
     {
@@ -154,24 +479,20 @@ public class MarkerRunner
             IsVirtualItem = false,
         });
 
-        var seasonsBySeries = _libraryManager.GetItemList(new InternalItemsQuery
+        var allSeasons = _libraryManager.GetItemList(new InternalItemsQuery
             {
                 IncludeItemTypes = [BaseItemKind.Season],
                 Recursive = true,
                 IsVirtualItem = false,
             })
             .OfType<Season>()
-            .GroupBy(s => s.SeriesId)
-            .ToDictionary(g => g.Key, g => g.ToList());
+            .ToList();
 
         var index = BuildProviderIndex(jellyfinSeries);
-        var rules = config.SeriesRules
-            .Where(r => r.TvdbId > 0)
-            .GroupBy(r => r.TvdbId)
-            .ToDictionary(g => g.Key, g => g.First());
+        var rules = GetRules(config);
 
-        // itemId -> banner text, for everything that should be marked after this run.
         var desired = new Dictionary<Guid, (BaseItem Item, string Text)>();
+        var seriesItemToReport = new Dictionary<Guid, SeriesReport>();
         var now = DateTime.UtcNow;
         var done = 0;
 
@@ -181,18 +502,7 @@ public class MarkerRunner
             done++;
             progress.Report(1 + (80.0 * done / Math.Max(1, sonarrSeries.Count)));
 
-            if (config.OnlyMonitoredSeries && !series.Monitored)
-            {
-                continue;
-            }
-
-            if (series.IsAnime && !config.AnimeEnabled)
-            {
-                continue;
-            }
-
-            rules.TryGetValue(series.TvdbId, out var rule);
-            if (rule?.IgnoreSeries == true)
+            if (!IsChecked(config, series, rules))
             {
                 continue;
             }
@@ -208,56 +518,22 @@ public class MarkerRunner
 
             try
             {
-                var episodes = await _sonarr.GetEpisodesAsync(config.SonarrUrl, config.SonarrApiKey, series.Id, cancellationToken).ConfigureAwait(false);
-
-                FillerInfo? filler = null;
-                if (series.IsAnime && NeedsFillerData(config, rule))
-                {
-                    filler = await _filler.GetFillerAsync(config, series.Title, rule, cancellationToken).ConfigureAwait(false);
-                }
-
-                var result = MissingEpisodeDetector.Detect(series, episodes, config, rule, filler, now);
-                if (!result.IsIncomplete)
+                var (seriesReport, seriesDesired) = await ProcessSeriesAsync(
+                    series, matches, allSeasons, config, rules, now, cancellationToken).ConfigureAwait(false);
+                if (seriesReport is null)
                 {
                     continue;
                 }
 
-                var seriesReport = new SeriesReport
+                report.IncompleteSeries.Add(seriesReport);
+                foreach (var (id, value) in seriesDesired)
                 {
-                    Title = series.Title,
-                    TvdbId = series.TvdbId,
-                    Status = series.Status,
-                    IsAnime = series.IsAnime,
-                    MissingCount = result.Missing.Count,
-                    IgnoredCount = result.IgnoredCount,
-                    FillerSource = filler?.Source,
-                };
-                foreach (var (season, count) in result.MissingPerSeason)
-                {
-                    seriesReport.MissingPerSeason[season] = count;
+                    desired[id] = value;
                 }
 
-                seriesReport.Missing.AddRange(result.Missing.Take(MaxEpisodesInReport));
-                report.IncompleteSeries.Add(seriesReport);
-
-                foreach (var jfSeries in matches)
+                foreach (var m in matches)
                 {
-                    if (config.MarkSeries)
-                    {
-                        desired[jfSeries.Id] = (jfSeries, FormatText(config.SeriesBannerText, result.Missing.Count));
-                    }
-
-                    if (config.MarkSeasons && seasonsBySeries.TryGetValue(jfSeries.Id, out var seasons))
-                    {
-                        foreach (var season in seasons)
-                        {
-                            if (season.IndexNumber is int number
-                                && result.MissingPerSeason.TryGetValue(number, out var seasonCount))
-                            {
-                                desired[season.Id] = (season, FormatText(config.SeasonBannerText, seasonCount));
-                            }
-                        }
-                    }
+                    seriesItemToReport[m.Id] = seriesReport;
                 }
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
@@ -268,18 +544,15 @@ public class MarkerRunner
 
         // Apply markers.
         var applied = 0;
-        foreach (var (_, (item, text)) in desired)
+        foreach (var (id, value) in desired)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            try
-            {
-                await _posters.ApplyAsync(item, text, config, cancellationToken).ConfigureAwait(false);
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                _logger.LogError(ex, "Could not mark poster for {Name}", item.Name);
-            }
-
+            seriesItemToReport.TryGetValue(id, out var seriesReport);
+            await ApplyDesiredAsync(
+                new Dictionary<Guid, (BaseItem Item, string Text)> { [id] = value },
+                config,
+                seriesReport,
+                seriesReport is null ? null : id,
+                cancellationToken).ConfigureAwait(false);
             applied++;
             progress.Report(81 + (14.0 * applied / Math.Max(1, desired.Count)));
         }
@@ -373,5 +646,15 @@ public class MarkerRunner
         }
 
         return new List<BaseItem>();
+    }
+
+    /// <summary>Reports progress synchronously through a callback.</summary>
+    private sealed class ActionProgress : IProgress<double>
+    {
+        private readonly Action<double> _report;
+
+        public ActionProgress(Action<double> report) => _report = report;
+
+        public void Report(double value) => _report(value);
     }
 }

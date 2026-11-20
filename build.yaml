@@ -1,7 +1,7 @@
 ---
 name: "Missing Episode Marker"
 guid: "2c1c05ff-9147-4666-9eff-1daad3f44e07"
-version: "0.1.0.0"
+version: "0.2.0.0"
 targetAbi: "12.0.0.0"
 framework: "net10.0"
 overview: "Marks TV shows and seasons that are missing episodes, using Sonarr."
@@ -12,8 +12,14 @@ description: >
   Supports a grace period for ongoing shows, special-episode rules,
   per-series overrides and anime filler handling.
 category: "General"
+image: "image.png"
+imageUrl: "https://raw.githubusercontent.com/Adam-Tew/jellyfin-plugin-missing-episode-marker/main/image.png"
 owner: "Adam-Tew"
 artifacts:
   - "Jellyfin.Plugin.MissingEpisodeMarker.dll"
 changelog: >
-  Initial release.
+  Markers come back within seconds when Jellyfin replaces a poster, and a series is
+  rechecked as soon as episodes are added or removed. Settings page reorganized into
+  tabs with search, multi-select rules, a specials picker and help texts. Grace period
+  in days/weeks/months/years, schedule setting, progress bar with time estimate,
+  optional menu entry, poster status in the report, and a plugin image.

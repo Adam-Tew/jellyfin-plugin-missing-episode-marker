@@ -68,6 +68,44 @@ public enum BannerPosition
     CornerRibbon = 3,
 }
 
+/// <summary>Unit for the grace period.</summary>
+public enum TimeUnit
+{
+    /// <summary>Days.</summary>
+    Days = 0,
+
+    /// <summary>Weeks.</summary>
+    Weeks = 1,
+
+    /// <summary>Months.</summary>
+    Months = 2,
+
+    /// <summary>Years.</summary>
+    Years = 3,
+}
+
+/// <summary>How often the full check runs on its own.</summary>
+public enum CheckSchedule
+{
+    /// <summary>Never on a timer (only manual, after scans and on library changes).</summary>
+    Off = 0,
+
+    /// <summary>Every hour.</summary>
+    Hourly = 1,
+
+    /// <summary>Every 6 hours.</summary>
+    Every6Hours = 2,
+
+    /// <summary>Every 12 hours.</summary>
+    Every12Hours = 3,
+
+    /// <summary>Once a day.</summary>
+    Daily = 4,
+
+    /// <summary>Once a week.</summary>
+    Weekly = 5,
+}
+
 /// <summary>
 /// A rule that changes how one particular series is handled.
 /// </summary>
@@ -78,6 +116,9 @@ public class SeriesRule
 
     /// <summary>Gets or sets the series title (for display only).</summary>
     public string Title { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets a value indicating whether the series is anime (decides which tab shows the rule).</summary>
+    public bool IsAnime { get; set; }
 
     /// <summary>Gets or sets a value indicating whether this series is never marked.</summary>
     public bool IgnoreSeries { get; set; }
@@ -122,8 +163,11 @@ public class PluginConfiguration : BasePluginConfiguration
 
     // ---------------- Detection ----------------
 
-    /// <summary>Gets or sets the grace period in weeks before a missing episode of an ongoing show counts.</summary>
-    public int GracePeriodWeeks { get; set; } = 4;
+    /// <summary>Gets or sets the grace period amount before a missing episode of an ongoing show counts.</summary>
+    public int GracePeriodAmount { get; set; } = 4;
+
+    /// <summary>Gets or sets the grace period unit.</summary>
+    public TimeUnit GracePeriodUnit { get; set; } = TimeUnit.Weeks;
 
     /// <summary>Gets or sets a value indicating whether the grace period also applies to ended shows.</summary>
     public bool ApplyGraceToEndedShows { get; set; }
@@ -161,6 +205,18 @@ public class PluginConfiguration : BasePluginConfiguration
 
     /// <summary>Gets or sets a value indicating whether a check also runs after every library scan.</summary>
     public bool RunAfterLibraryScan { get; set; } = true;
+
+    /// <summary>
+    /// Gets or sets a value indicating whether the plugin reacts to library changes right away:
+    /// it re-applies a marker when Jellyfin swaps a marked poster, and rechecks a series when episodes are added or removed.
+    /// </summary>
+    public bool ReactToLibraryChanges { get; set; } = true;
+
+    /// <summary>Gets or sets how often the full check runs on its own.</summary>
+    public CheckSchedule Schedule { get; set; } = CheckSchedule.Daily;
+
+    /// <summary>Gets or sets a value indicating whether the plugin has an entry in the dashboard menu.</summary>
+    public bool ShowInMenu { get; set; }
 
     /// <summary>Gets or sets a value indicating whether series posters are marked.</summary>
     public bool MarkSeries { get; set; } = true;

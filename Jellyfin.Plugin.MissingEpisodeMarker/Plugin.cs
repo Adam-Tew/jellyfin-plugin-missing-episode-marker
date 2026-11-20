@@ -70,6 +70,8 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
             {
                 Name = "MissingEpisodeMarker",
                 DisplayName = "Missing Episode Marker",
+                EnableInMainMenu = Instance?.Configuration.ShowInMenu ?? false,
+                MenuIcon = "broken_image",
                 EmbeddedResourcePath = string.Format(
                     CultureInfo.InvariantCulture,
                     "{0}.Configuration.configPage.html",
