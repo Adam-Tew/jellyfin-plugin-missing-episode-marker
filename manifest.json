@@ -6,7 +6,17 @@
         "overview": "Marks TV shows and seasons that are missing episodes, using Sonarr.",
         "owner": "Adam-Tew",
         "category": "General",
+        "imageUrl": "/missing-episode-marker/image.png",
+        "image": "image.png",
         "versions": [
+            {
+                "version": "0.2.0.0",
+                "changelog": "Markers come back within seconds when Jellyfin replaces a poster, and a series is rechecked as soon as episodes are added or removed. Settings page reorganized into tabs with search, multi-select rules, a specials picker and help texts. Grace period in days/weeks/months/years, schedule setting, progress bar with time estimate, optional menu entry, poster status in the report, and a plugin image.\n",
+                "targetAbi": "12.0.0.0",
+                "sourceUrl": "https://github.com/Adam-Tew/jellyfin-plugin-missing-episode-marker/releases/download/v0.2.0.0/missing-episode-marker_0.2.0.0.zip",
+                "checksum": "94e0b2365b19824ae58082c886136653",
+                "timestamp": "2026-11-21T07:32:18Z"
+            },
             {
                 "version": "0.1.0.0",
                 "changelog": "Initial release.\n",
