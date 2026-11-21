@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Linq;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.MissingEpisodeMarker.Configuration;
@@ -33,6 +34,9 @@ public sealed class LibraryChangeWatcher : IHostedService, IDisposable
     private readonly ConcurrentDictionary<Guid, CancellationTokenSource> _pendingReapply = new();
     private readonly ConcurrentDictionary<Guid, CancellationTokenSource> _pendingRecheck = new();
     private readonly CancellationTokenSource _stopping = new();
+    private readonly object _snapshotLock = new();
+    private CancellationTokenSource? _pendingConfigCheck;
+    private string? _lastCheckSnapshot;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="LibraryChangeWatcher"/> class.
@@ -66,6 +70,7 @@ public sealed class LibraryChangeWatcher : IHostedService, IDisposable
         if (Plugin.Instance is not null)
         {
             Plugin.Instance.ConfigurationChanged += OnConfigurationChanged;
+            _lastCheckSnapshot = CheckSnapshot(Plugin.Instance.Configuration);
         }
 
         // Scheduled tasks may not be registered yet at startup; apply the schedule a little later.
@@ -124,7 +129,69 @@ public sealed class LibraryChangeWatcher : IHostedService, IDisposable
         _ => null,
     };
 
-    private void OnConfigurationChanged(object? sender, BasePluginConfiguration e) => ApplySchedule();
+    private void OnConfigurationChanged(object? sender, BasePluginConfiguration e)
+    {
+        ApplySchedule();
+
+        if (e is not PluginConfiguration config)
+        {
+            return;
+        }
+
+        // Settings that change what gets marked or how it looks: re-run the check so posters follow at once.
+        var snapshot = CheckSnapshot(config);
+        CancellationToken token;
+        lock (_snapshotLock)
+        {
+            if (snapshot == _lastCheckSnapshot)
+            {
+                return;
+            }
+
+            _lastCheckSnapshot = snapshot;
+            _pendingConfigCheck?.Cancel();
+            _pendingConfigCheck?.Dispose();
+            _pendingConfigCheck = CancellationTokenSource.CreateLinkedTokenSource(_stopping.Token);
+            token = _pendingConfigCheck.Token;
+        }
+
+        if (string.IsNullOrWhiteSpace(config.SonarrApiKey))
+        {
+            return;
+        }
+
+        _ = Task.Run(
+            async () =>
+            {
+                try
+                {
+                    // Short pause so several quick saves only start one check.
+                    await Task.Delay(TimeSpan.FromSeconds(3), token).ConfigureAwait(false);
+                    _logger.LogInformation("Missing Episode Marker settings changed; running a check");
+                    _taskManager.QueueScheduledTask<MarkMissingEpisodesTask>();
+                }
+                catch (OperationCanceledException)
+                {
+                    // Superseded by a newer save or shutting down.
+                }
+            },
+            CancellationToken.None);
+    }
+
+    /// <summary>
+    /// A fingerprint of every setting that affects detection or marking.
+    /// Schedule, menu and "when to check" settings are left out: changing them needs no new check.
+    /// </summary>
+    private static string CheckSnapshot(PluginConfiguration config)
+    {
+        var copy = JsonSerializer.Deserialize<PluginConfiguration>(JsonSerializer.Serialize(config)) ?? new PluginConfiguration();
+        copy.Schedule = CheckSchedule.Off;
+        copy.ShowInMenu = false;
+        copy.ReactToLibraryChanges = false;
+        copy.RunAfterLibraryScan = false;
+        copy.FillerRefreshDays = 0;
+        return JsonSerializer.Serialize(copy);
+    }
 
     /// <summary>Sets the scheduled task's timer from the settings. Returns false if the task is not registered yet.</summary>
     private bool ApplySchedule()
