@@ -6,7 +6,7 @@
         "overview": "Marks TV shows and seasons that are missing episodes, using Sonarr.",
         "owner": "Adam-Tew",
         "category": "General",
-        "imageUrl": "/missing-episode-marker/image.png",
+        "imageUrl": "https://raw.githubusercontent.com/Adam-Tew/jellyfin-plugin-missing-episode-marker/main/image.png",
         "image": "image.png",
         "versions": [
             {

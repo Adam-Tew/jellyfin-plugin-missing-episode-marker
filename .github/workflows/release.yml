@@ -66,6 +66,18 @@ jobs:
           git checkout main
           git reset --hard origin/main
           jprm repo add --plugin-url "${URL}" ./manifest.json /tmp/"${ZIP}"
+          # jprm writes a relative imageUrl, which breaks Jellyfin's plugin catalog; use the absolute raw URL.
+          python3 - <<'PY'
+          import json, os
+          url = "https://raw.githubusercontent.com/" + os.environ["GITHUB_REPOSITORY"] + "/main/image.png"
+          with open("manifest.json") as f:
+              manifest = json.load(f)
+          for plugin in manifest:
+              plugin["imageUrl"] = url
+          with open("manifest.json", "w") as f:
+              json.dump(manifest, f, indent=4)
+              f.write("\n")
+          PY
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add manifest.json
