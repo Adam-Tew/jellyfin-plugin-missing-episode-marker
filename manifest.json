@@ -10,6 +10,14 @@
         "image": "image.png",
         "versions": [
             {
+                "version": "0.3.0.0",
+                "changelog": "New shows are marked as soon as their poster arrives (Jellyfin downloads artwork after the scan), and after a metadata refresh. New option (on): fetch a new poster for shows whose poster is missing or a video frame. New option (off): the same for movies. The report shows when a poster is still on its way.\n",
+                "targetAbi": "12.0.0.0",
+                "sourceUrl": "https://github.com/Adam-Tew/jellyfin-plugin-missing-episode-marker/releases/download/v0.3.0.0/missing-episode-marker_0.3.0.0.zip",
+                "checksum": "b341f72ec11479fec082a5e94a61cc0f",
+                "timestamp": "2026-11-22T10:50:13Z"
+            },
+            {
                 "version": "0.2.1.0",
                 "changelog": "Saving settings that affect detection, rules or appearance now starts a new check automatically, so posters follow the new settings right away. Clearer plugin image.\n",
                 "targetAbi": "12.0.0.0",
