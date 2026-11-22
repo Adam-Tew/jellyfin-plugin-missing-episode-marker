@@ -237,8 +237,9 @@ public sealed class LibraryChangeWatcher : IHostedService, IDisposable
             return;
         }
 
-        // Only care about items we marked whose poster Jellyfin has since replaced.
-        if (_posters.GetEntry(item.Id) is null || !_posters.WasReplaced(item))
+        // Items that should be marked but don't show the marked copy: the poster just arrived,
+        // or Jellyfin replaced the marked one (e.g. a metadata refresh).
+        if (!_posters.NeedsMarker(item))
         {
             return;
         }

@@ -20,6 +20,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<SonarrClient>();
         serviceCollection.AddSingleton<FillerService>();
         serviceCollection.AddSingleton<PosterMarkerService>();
+        serviceCollection.AddSingleton<PosterRepairService>();
         serviceCollection.AddSingleton<MarkerRunner>();
         serviceCollection.AddHostedService<LibraryChangeWatcher>();
     }

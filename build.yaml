@@ -1,7 +1,7 @@
 ---
 name: "Missing Episode Marker"
 guid: "2c1c05ff-9147-4666-9eff-1daad3f44e07"
-version: "0.2.1.0"
+version: "0.3.0.0"
 targetAbi: "12.0.0.0"
 framework: "net10.0"
 overview: "Marks TV shows and seasons that are missing episodes, using Sonarr."
@@ -18,5 +18,7 @@ owner: "Adam-Tew"
 artifacts:
   - "Jellyfin.Plugin.MissingEpisodeMarker.dll"
 changelog: >
-  Saving settings that affect detection, rules or appearance now starts a new check
-  automatically, so posters follow the new settings right away. Clearer plugin image.
+  New shows are marked as soon as their poster arrives (Jellyfin downloads artwork after
+  the scan), and after a metadata refresh. New option (on): fetch a new poster for shows
+  whose poster is missing or a video frame. New option (off): the same for movies.
+  The report shows when a poster is still on its way.

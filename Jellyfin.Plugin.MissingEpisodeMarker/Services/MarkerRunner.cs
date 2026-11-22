@@ -29,6 +29,7 @@ public class MarkerRunner
     private readonly SonarrClient _sonarr;
     private readonly FillerService _filler;
     private readonly PosterMarkerService _posters;
+    private readonly PosterRepairService _repair;
     private readonly ILogger<MarkerRunner> _logger;
     private readonly SemaphoreSlim _runLock = new(1, 1);
     private readonly object _reportLock = new();
@@ -40,18 +41,21 @@ public class MarkerRunner
     /// <param name="sonarr">Sonarr client.</param>
     /// <param name="filler">Filler service.</param>
     /// <param name="posters">Poster marker service.</param>
+    /// <param name="repair">Poster repair service.</param>
     /// <param name="logger">Logger.</param>
     public MarkerRunner(
         ILibraryManager libraryManager,
         SonarrClient sonarr,
         FillerService filler,
         PosterMarkerService posters,
+        PosterRepairService repair,
         ILogger<MarkerRunner> logger)
     {
         _libraryManager = libraryManager;
         _sonarr = sonarr;
         _filler = filler;
         _posters = posters;
+        _repair = repair;
         _logger = logger;
     }
 
@@ -173,13 +177,21 @@ public class MarkerRunner
                 }
             }
 
+            // Remember what should be marked first, so markers follow posters that arrive later.
+            var ownItems = new HashSet<Guid>(seasons.Select(s => s.Id)) { jfSeries.Id };
+            _posters.UpdateWanted(ownItems, desired.ToDictionary(d => d.Key, d => d.Value.Text));
+
             if (seriesReport is not null)
             {
                 await ApplyDesiredAsync(desired, config, seriesReport, jfSeries.Id, cancellationToken).ConfigureAwait(false);
             }
 
+            if (config.RepairShowPosters)
+            {
+                await _repair.RepairIfNeededAsync(jfSeries, cancellationToken).ConfigureAwait(false);
+            }
+
             // Restore this series' items that should no longer be marked.
-            var ownItems = new HashSet<Guid>(seasons.Select(s => s.Id)) { jfSeries.Id };
             foreach (var id in _posters.GetMarkedItemIds())
             {
                 if (ownItems.Contains(id) && !desired.ContainsKey(id))
@@ -230,14 +242,14 @@ public class MarkerRunner
     public async Task ReapplyAsync(Guid itemId, CancellationToken cancellationToken)
     {
         var config = GetConfig();
-        var entry = _posters.GetEntry(itemId);
-        if (!config.MarkingEnabled || entry is null)
+        var text = _posters.GetWantedText(itemId);
+        if (!config.MarkingEnabled || text is null)
         {
             return;
         }
 
         var item = _libraryManager.GetItemById(itemId);
-        if (item is null || !_posters.WasReplaced(item))
+        if (item is null || !_posters.NeedsMarker(item))
         {
             return;
         }
@@ -245,8 +257,8 @@ public class MarkerRunner
         await _runLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            _logger.LogInformation("Poster of {Name} was replaced by Jellyfin; putting the marker back", item.Name);
-            await _posters.ApplyAsync(item, entry.Text, config, cancellationToken).ConfigureAwait(false);
+            _logger.LogInformation("Poster of {Name} arrived or was replaced; applying the marker", item.Name);
+            await _posters.ApplyAsync(item, text, config, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -341,7 +353,7 @@ public class MarkerRunner
     private static string Describe(ApplyResult result) => result switch
     {
         ApplyResult.Marked => "Marked",
-        ApplyResult.NoPoster => "No poster image in Jellyfin",
+        ApplyResult.NoPoster => "No poster yet; marked as soon as one arrives",
         ApplyResult.NotLocal => "Poster is not a file on the server",
         ApplyResult.OriginalMissing => "Poster file is missing",
         ApplyResult.OriginalUnknown => "Refresh this series' metadata once",
@@ -437,6 +449,13 @@ public class MarkerRunner
         foreach (var (id, (item, text)) in desired)
         {
             cancellationToken.ThrowIfCancellationRequested();
+
+            // A landscape "poster" is usually a video frame: fetch a real poster before marking it.
+            if (config.RepairShowPosters && item is Series && _repair.Inspect(item) == PosterProblem.Landscape)
+            {
+                await _repair.RepairIfNeededAsync(item, cancellationToken).ConfigureAwait(false);
+            }
+
             ApplyResult result;
             try
             {
@@ -451,6 +470,15 @@ public class MarkerRunner
             if (seriesReport is not null && seriesItemId == id)
             {
                 seriesReport.PosterStatus = Describe(result);
+            }
+
+            if (result == ApplyResult.NoPoster && config.RepairShowPosters && item is Series)
+            {
+                var (_, requested) = await _repair.RepairIfNeededAsync(item, cancellationToken).ConfigureAwait(false);
+                if (requested && seriesReport is not null && seriesItemId == id)
+                {
+                    seriesReport.PosterStatus = "No poster; fetching one, marked when it arrives";
+                }
             }
         }
     }
@@ -542,6 +570,9 @@ public class MarkerRunner
             }
         }
 
+        // Remember what should be marked, so markers also follow posters that arrive later.
+        _posters.SetWanted(desired.ToDictionary(d => d.Key, d => d.Value.Text));
+
         // Apply markers.
         var applied = 0;
         foreach (var (id, value) in desired)
@@ -554,7 +585,49 @@ public class MarkerRunner
                 seriesReport is null ? null : id,
                 cancellationToken).ConfigureAwait(false);
             applied++;
-            progress.Report(81 + (14.0 * applied / Math.Max(1, desired.Count)));
+            progress.Report(81 + (9.0 * applied / Math.Max(1, desired.Count)));
+        }
+
+        // Fix missing or wrong posters (image only).
+        if (config.RepairShowPosters)
+        {
+            foreach (var jf in jellyfinSeries)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (desired.ContainsKey(jf.Id))
+                {
+                    continue; // Already handled when marking.
+                }
+
+                var (_, requested) = await _repair.RepairIfNeededAsync(jf, cancellationToken).ConfigureAwait(false);
+                if (requested)
+                {
+                    report.PostersRepaired++;
+                }
+            }
+        }
+
+        if (config.RepairMoviePosters)
+        {
+            var movies = _libraryManager.GetItemList(new InternalItemsQuery
+            {
+                IncludeItemTypes = [BaseItemKind.Movie],
+                Recursive = true,
+                IsVirtualItem = false,
+            });
+            var checkedMovies = 0;
+            foreach (var movie in movies)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var (_, requested) = await _repair.RepairIfNeededAsync(movie, cancellationToken).ConfigureAwait(false);
+                if (requested)
+                {
+                    report.PostersRepaired++;
+                }
+
+                checkedMovies++;
+                progress.Report(90 + (5.0 * checkedMovies / Math.Max(1, movies.Count)));
+            }
         }
 
         // Restore everything that should no longer be marked (now complete, rule changed, deleted...).
@@ -573,10 +646,11 @@ public class MarkerRunner
         report.Success = true;
         report.Message = string.Format(
             CultureInfo.InvariantCulture,
-            "Checked {0} series: {1} incomplete, {2} posters marked.",
+            "Checked {0} series: {1} incomplete, {2} posters marked{3}.",
             report.SeriesChecked,
             report.IncompleteSeries.Count,
-            report.PostersMarked);
+            report.PostersMarked,
+            report.PostersRepaired > 0 ? ", " + report.PostersRepaired + " posters fetched again" : string.Empty);
         _logger.LogInformation("Missing Episode Marker: {Message}", report.Message);
         return report;
     }

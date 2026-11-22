@@ -30,6 +30,9 @@ public class PosterMarkerService
     private readonly string _stateFile;
     private readonly object _stateLock = new();
     private Dictionary<Guid, MarkerEntry>? _state;
+    private readonly string _wantedFile;
+    private readonly object _wantedLock = new();
+    private Dictionary<Guid, string>? _wanted;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="PosterMarkerService"/> class.
@@ -43,6 +46,7 @@ public class PosterMarkerService
         _paths = paths;
         _logger = logger;
         _stateFile = Path.Combine(paths.DataDirectory, "marked-items.json");
+        _wantedFile = Path.Combine(paths.DataDirectory, "wanted-items.json");
         Current = this;
     }
 
@@ -57,6 +61,76 @@ public class PosterMarkerService
         {
             return LoadState().Keys.ToList();
         }
+    }
+
+    /// <summary>
+    /// Replaces the full set of items that should be marked (item id -> banner text).
+    /// Items in this set get marked as soon as they have a usable poster, even if it arrives later.
+    /// </summary>
+    /// <param name="wanted">The items.</param>
+    public void SetWanted(IDictionary<Guid, string> wanted)
+    {
+        lock (_wantedLock)
+        {
+            _wanted = new Dictionary<Guid, string>(wanted);
+            SaveWanted();
+        }
+    }
+
+    /// <summary>Updates the wanted set for some items only (e.g. one series and its seasons).</summary>
+    /// <param name="scope">The items this update is about.</param>
+    /// <param name="wanted">Which of them should be marked, with their text.</param>
+    public void UpdateWanted(IEnumerable<Guid> scope, IDictionary<Guid, string> wanted)
+    {
+        lock (_wantedLock)
+        {
+            var set = LoadWanted();
+            foreach (var id in scope)
+            {
+                set.Remove(id);
+            }
+
+            foreach (var (id, text) in wanted)
+            {
+                set[id] = text;
+            }
+
+            SaveWanted();
+        }
+    }
+
+    /// <summary>Gets the banner text for an item that should be marked, or null if it should not.</summary>
+    /// <param name="itemId">The item id.</param>
+    /// <returns>The text, or null.</returns>
+    public string? GetWantedText(Guid itemId)
+    {
+        lock (_wantedLock)
+        {
+            return LoadWanted().TryGetValue(itemId, out var text) ? text : null;
+        }
+    }
+
+    /// <summary>
+    /// Checks whether an item should be marked but does not show its marked copy
+    /// (not marked yet because it had no poster, or Jellyfin replaced the poster).
+    /// </summary>
+    /// <param name="item">The item.</param>
+    /// <returns>True when a marker should be (re)applied.</returns>
+    public bool NeedsMarker(BaseItem item)
+    {
+        if (GetWantedText(item.Id) is null)
+        {
+            return false;
+        }
+
+        var image = item.GetImageInfo(ImageType.Primary, 0);
+        if (image is null)
+        {
+            return false; // Still no poster; wait for one.
+        }
+
+        var entry = GetEntry(item.Id);
+        return entry is null || !PathEquals(image.Path, entry.MarkedPath);
     }
 
     /// <summary>Gets what the plugin remembers about a marked item.</summary>
@@ -261,6 +335,8 @@ public class PosterMarkerService
     /// <returns>A task.</returns>
     public async Task RestoreAllAsync(CancellationToken cancellationToken)
     {
+        SetWanted(new Dictionary<Guid, string>());
+
         foreach (var id in GetMarkedItemIds())
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -374,6 +450,48 @@ public class PosterMarkerService
 
         _state ??= new Dictionary<Guid, MarkerEntry>();
         return _state;
+    }
+
+    private Dictionary<Guid, string> LoadWanted()
+    {
+        if (_wanted is not null)
+        {
+            return _wanted;
+        }
+
+        try
+        {
+            if (File.Exists(_wantedFile))
+            {
+                _wanted = JsonSerializer.Deserialize<Dictionary<Guid, string>>(File.ReadAllText(_wantedFile), JsonOptions);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or JsonException)
+        {
+            _logger.LogWarning(ex, "Wanted-items file is unreadable; it is rebuilt on the next check");
+        }
+
+        _wanted ??= new Dictionary<Guid, string>();
+        return _wanted;
+    }
+
+    private void SaveWanted()
+    {
+        if (_wanted is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var temp = _wantedFile + ".tmp";
+            File.WriteAllText(temp, JsonSerializer.Serialize(_wanted, JsonOptions));
+            File.Move(temp, _wantedFile, true);
+        }
+        catch (IOException ex)
+        {
+            _logger.LogError(ex, "Could not save the wanted-items file");
+        }
     }
 
     private void SaveState()

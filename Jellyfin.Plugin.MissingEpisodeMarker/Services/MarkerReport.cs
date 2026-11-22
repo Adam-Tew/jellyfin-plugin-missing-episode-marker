@@ -22,6 +22,9 @@ public class MarkerReport
     /// <summary>Gets or sets how many Sonarr series have no matching series in Jellyfin.</summary>
     public int SeriesNotInJellyfin { get; set; }
 
+    /// <summary>Gets or sets how many posters the plugin asked Jellyfin to fetch again during the run.</summary>
+    public int PostersRepaired { get; set; }
+
     /// <summary>Gets or sets how many posters are currently marked.</summary>
     public int PostersMarked { get; set; }
 

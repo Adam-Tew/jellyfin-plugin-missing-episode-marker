@@ -131,6 +131,30 @@
                     </div>
 
                     <div class="mem-card">
+                        <h3>Poster repair
+                            <button type="button" class="mem-help-btn" data-help="hRepair">?</button></h3>
+                        <div class="mem-help" id="hRepair">
+                            Sometimes Jellyfin ends up with no poster, or uses a frame from the video instead of a real poster
+                            (you can tell because it is wide instead of tall). With these on, the plugin asks Jellyfin to fetch
+                            the poster again during each full check. Only the poster is refreshed, nothing else. Each item is
+                            retried at most once a week, so items without any poster online don't keep refreshing.
+                            Movies are only repaired, never marked.
+                        </div>
+                        <div class="checkboxContainer">
+                            <label class="emby-checkbox-label">
+                                <input id="RepairShowPosters" type="checkbox" is="emby-checkbox" />
+                                <span>Fetch new posters for shows with a missing or wrong poster</span>
+                            </label>
+                        </div>
+                        <div class="checkboxContainer">
+                            <label class="emby-checkbox-label">
+                                <input id="RepairMoviePosters" type="checkbox" is="emby-checkbox" />
+                                <span>Do the same for movies</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="mem-card">
                         <h3>Menu</h3>
                         <div class="checkboxContainer">
                             <label class="emby-checkbox-label">
@@ -156,7 +180,9 @@
                             <button is="emby-button" type="button" id="memRefreshReport" class="raised emby-button"><span>Refresh report</span></button>
                             <button is="emby-button" type="button" id="memRemoveAll" class="raised emby-button"><span>Remove all markers</span></button>
                         </div>
-                        <div class="mem-small">Details of every check are in Dashboard → Logs (search for "Missing Episode Marker" or a series name).</div>
+                        <div class="mem-small">Results of a check are applied to the posters straight away; there is no need to click Save.
+                            Save is only for the settings on the other tabs.<br>
+                            Details of every check are in Dashboard → Logs (search for "Missing Episode Marker" or a series name).</div>
                     </div>
                     <div class="mem-card">
                         <h3>Incomplete series</h3>
@@ -460,7 +486,7 @@
             var rangeFields = ['FilterOpacity', 'BannerOpacity', 'BannerSizePercent'];
             var colorFields = ['FilterColor', 'BannerColor', 'TextColor'];
             var checkFields = ['OnlyMonitoredSeries', 'ApplyGraceToEndedShows', 'RunAfterLibraryScan', 'ReactToLibraryChanges',
-                'ShowInMenu', 'AnimeEnabled', 'CountMissingFiller', 'TreatMixedAsFiller', 'FillerLookupEnabled',
+                'ShowInMenu', 'RepairShowPosters', 'RepairMoviePosters', 'AnimeEnabled', 'CountMissingFiller', 'TreatMixedAsFiller', 'FillerLookupEnabled',
                 'MarkingEnabled', 'MarkSeries', 'MarkSeasons', 'Grayscale', 'FilterEnabled', 'BannerEnabled'];
             var selectFields = ['SpecialsMode', 'SpecialsSource', 'BannerPosition', 'GracePeriodUnit', 'Schedule'];
 
@@ -779,7 +805,9 @@
                         }).join('<br>');
                         var more = s.MissingCount > (s.Missing || []).length ? '<br>…and more' : '';
                         var poster = s.PosterStatus || '';
-                        var posterHtml = poster === 'Marked' ? '✔ Marked' : (poster ? '<span style="color:#ff8a80">' + esc(poster) + '</span>' : '');
+                        var waiting = /arrives/.test(poster);
+                        var posterHtml = poster === 'Marked' ? '✔ Marked'
+                            : (poster ? '<span style="color:' + (waiting ? '#ffd180' : '#ff8a80') + '">' + esc(poster) + '</span>' : '');
                         return '<tr><td><details><summary>' + esc(s.Title) + (s.IsAnime ? ' <span class="mem-badge">anime</span>' : '') +
                             '</summary><div class="mem-small">' + eps + more +
                             (s.IgnoredCount ? '<br>' + s.IgnoredCount + ' more missing but ignored (grace period, filler or specials)' : '') +

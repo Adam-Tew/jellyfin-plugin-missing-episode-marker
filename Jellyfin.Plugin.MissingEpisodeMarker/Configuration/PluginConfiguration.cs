@@ -215,6 +215,15 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>Gets or sets how often the full check runs on its own.</summary>
     public CheckSchedule Schedule { get; set; } = CheckSchedule.Daily;
 
+    /// <summary>
+    /// Gets or sets a value indicating whether missing or landscape (video-frame) series posters are fetched again
+    /// (image only). Marked series get their marker as soon as the new poster arrives.
+    /// </summary>
+    public bool RepairShowPosters { get; set; } = true;
+
+    /// <summary>Gets or sets a value indicating whether missing or landscape movie posters are fetched again (movies are never marked).</summary>
+    public bool RepairMoviePosters { get; set; }
+
     /// <summary>Gets or sets a value indicating whether the plugin has an entry in the dashboard menu.</summary>
     public bool ShowInMenu { get; set; }
 
