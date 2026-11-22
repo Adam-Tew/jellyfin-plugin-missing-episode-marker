@@ -233,6 +233,15 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>Gets or sets a value indicating whether season posters are marked.</summary>
     public bool MarkSeasons { get; set; } = true;
 
+    /// <summary>
+    /// Gets or sets a value indicating whether every season of an incomplete show is marked,
+    /// not only the seasons that are missing episodes. Useful because "Recently added" may show a complete season.
+    /// </summary>
+    public bool MarkAllSeasonsOfIncompleteShows { get; set; }
+
+    /// <summary>Gets or sets the text for complete seasons of an incomplete show.</summary>
+    public string CompleteSeasonBannerText { get; set; } = "SHOW INCOMPLETE";
+
     // ---------------- Appearance ----------------
 
     /// <summary>Gets or sets a value indicating whether a colour filter is laid over the whole poster.</summary>

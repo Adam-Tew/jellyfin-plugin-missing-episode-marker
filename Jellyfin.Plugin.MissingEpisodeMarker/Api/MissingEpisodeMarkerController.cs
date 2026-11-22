@@ -63,6 +63,7 @@ public class MissingEpisodeMarkerController : ControllerBase
     public ActionResult<object> GetReport()
         => Ok(new
         {
+            Version = Plugin.Instance?.Version?.ToString(),
             IsRunning = _runner.IsRunning,
             Progress = _runner.Progress,
             EtaSeconds = _runner.EtaSeconds,

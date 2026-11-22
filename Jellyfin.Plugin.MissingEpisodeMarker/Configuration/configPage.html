@@ -53,7 +53,8 @@
             </style>
 
             <form id="MemConfigForm">
-                <h2 class="sectionTitle">Missing Episode Marker</h2>
+                <h2 class="sectionTitle">Missing Episode Marker
+                    <span class="mem-small" style="font-weight:normal" id="memVersion"></span></h2>
 
                 <div class="mem-tabs" role="tablist">
                     <button type="button" class="mem-tab active" data-tab="general">General</button>
@@ -177,7 +178,6 @@
                         </div>
                         <div class="mem-buttons">
                             <button is="emby-button" type="button" id="memRunNow" class="raised emby-button"><span>Run check now</span></button>
-                            <button is="emby-button" type="button" id="memRefreshReport" class="raised emby-button"><span>Refresh report</span></button>
                             <button is="emby-button" type="button" id="memRemoveAll" class="raised emby-button"><span>Remove all markers</span></button>
                         </div>
                         <div class="mem-small">Results of a check are applied to the posters straight away; there is no need to click Save.
@@ -185,7 +185,7 @@
                             Details of every check are in Dashboard → Logs (search for "Missing Episode Marker" or a series name).</div>
                     </div>
                     <div class="mem-card">
-                        <h3>Incomplete series</h3>
+                        <h3>Incomplete series <span class="mem-small" style="font-weight:normal">(updates automatically)</span></h3>
                         <div id="memReport" class="mem-small">No report yet.</div>
                     </div>
                 </div>
@@ -246,6 +246,18 @@
                                     <span>Season posters</span>
                                 </label>
                             </div>
+                        </div>
+                        <div class="checkboxContainer">
+                            <label class="emby-checkbox-label">
+                                <input id="MarkAllSeasonsOfIncompleteShows" type="checkbox" is="emby-checkbox" />
+                                <span>Mark every season of an incomplete show
+                                    <button type="button" class="mem-help-btn" data-help="hAllSeasons">?</button></span>
+                            </label>
+                        </div>
+                        <div class="mem-help" id="hAllSeasons">
+                            Normally only seasons that are missing episodes get a marker. But when a single new episode is added,
+                            "Recently added" on the home screen shows that episode's season, which may be complete, so no marker
+                            is visible there. Turn this on to also mark the complete seasons of an incomplete show, with their own text below.
                         </div>
                     </div>
 
@@ -314,6 +326,10 @@
                                 <label class="inputLabel inputLabelUnfocused" for="SeasonBannerText">Season banner text</label>
                                 <input id="SeasonBannerText" type="text" is="emby-input" />
                             </div>
+                        </div>
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="CompleteSeasonBannerText">Text for complete seasons of an incomplete show</label>
+                            <input id="CompleteSeasonBannerText" type="text" is="emby-input" />
                         </div>
                         <div class="fieldDescription">Write {count} where the number of missing episodes should go, e.g. "MISSING {count}".</div>
                         <div class="mem-buttons" style="margin-top:1em">
@@ -481,13 +497,13 @@
             var sonarrSeries = [];
             var pollTimer = null;
 
-            var textFields = ['SonarrUrl', 'SonarrApiKey', 'FillerSourceUrl', 'SeriesBannerText', 'SeasonBannerText'];
+            var textFields = ['SonarrUrl', 'SonarrApiKey', 'FillerSourceUrl', 'SeriesBannerText', 'SeasonBannerText', 'CompleteSeasonBannerText'];
             var numberFields = ['GracePeriodAmount', 'FillerRefreshDays'];
             var rangeFields = ['FilterOpacity', 'BannerOpacity', 'BannerSizePercent'];
             var colorFields = ['FilterColor', 'BannerColor', 'TextColor'];
             var checkFields = ['OnlyMonitoredSeries', 'ApplyGraceToEndedShows', 'RunAfterLibraryScan', 'ReactToLibraryChanges',
                 'ShowInMenu', 'RepairShowPosters', 'RepairMoviePosters', 'AnimeEnabled', 'CountMissingFiller', 'TreatMixedAsFiller', 'FillerLookupEnabled',
-                'MarkingEnabled', 'MarkSeries', 'MarkSeasons', 'Grayscale', 'FilterEnabled', 'BannerEnabled'];
+                'MarkingEnabled', 'MarkSeries', 'MarkSeasons', 'MarkAllSeasonsOfIncompleteShows', 'Grayscale', 'FilterEnabled', 'BannerEnabled'];
             var selectFields = ['SpecialsMode', 'SpecialsSource', 'BannerPosition', 'GracePeriodUnit', 'Schedule'];
 
             function $(id) { return page.querySelector('#' + id); }
@@ -777,6 +793,7 @@
             function renderReport(data) {
                 var status = $('memStatus');
                 var report = data.Report || {};
+                if (data.Version) { $('memVersion').textContent = 'v' + data.Version; }
                 var when = report.FinishedUtc ? new Date(report.FinishedUtc).toLocaleString() : 'never';
                 status.className = 'mem-status' + (report.Success === false && report.FinishedUtc ? ' error' : '');
                 status.innerHTML = esc(report.Message) + '<br><span class="mem-small">Last full check: ' + esc(when) +
@@ -819,11 +836,20 @@
             function loadReport() {
                 return api('GET', 'MissingEpisodeMarker/Report').then(function (data) {
                     renderReport(data);
-                    clearTimeout(pollTimer);
-                    if (data.IsRunning) { pollTimer = setTimeout(loadReport, 2000); }
+                    schedulePoll(data.IsRunning ? 2000 : 10000);
                 }).catch(function (err) {
                     $('memStatus').textContent = 'Could not load the report: ' + err.message;
+                    schedulePoll(15000);
                 });
+            }
+
+            // The report updates itself while the Status tab is open.
+            function schedulePoll(delay) {
+                clearTimeout(pollTimer);
+                var statusTab = page.querySelector('.mem-panel[data-panel="status"]');
+                if (statusTab && statusTab.classList.contains('active') && document.body.contains(page)) {
+                    pollTimer = setTimeout(loadReport, delay);
+                }
             }
 
             $('memRunNow').addEventListener('click', function () {
@@ -835,7 +861,6 @@
                 }).catch(function (err) { Dashboard.alert(err.message); });
             });
 
-            $('memRefreshReport').addEventListener('click', loadReport);
 
             $('memRemoveAll').addEventListener('click', function () {
                 if (!window.confirm('Restore every original poster now? Markers come back on the next check unless marking is turned off.')) {

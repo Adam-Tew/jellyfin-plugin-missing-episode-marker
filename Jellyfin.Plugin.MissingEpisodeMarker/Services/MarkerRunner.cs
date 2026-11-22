@@ -432,6 +432,11 @@ public class MarkerRunner
                     {
                         desired[season.Id] = (season, FormatText(config.SeasonBannerText, seasonCount));
                     }
+                    else if (config.MarkAllSeasonsOfIncompleteShows)
+                    {
+                        // Complete season of an incomplete show (e.g. the one "Recently added" shows).
+                        desired[season.Id] = (season, FormatText(config.CompleteSeasonBannerText, result.Missing.Count));
+                    }
                 }
             }
         }
