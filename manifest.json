@@ -10,6 +10,14 @@
         "image": "image.png",
         "versions": [
             {
+                "version": "0.3.1.0",
+                "changelog": "New option to mark every season of an incomplete show (so \"Recently added\" shows the marker even when it shows a complete season). The report updates itself while the Status tab is open. The settings page shows the installed version.\n",
+                "targetAbi": "12.0.0.0",
+                "sourceUrl": "https://github.com/Adam-Tew/jellyfin-plugin-missing-episode-marker/releases/download/v0.3.1.0/missing-episode-marker_0.3.1.0.zip",
+                "checksum": "19726945ac8730923290cc1bd3b4fa7a",
+                "timestamp": "2026-11-22T14:45:08Z"
+            },
+            {
                 "version": "0.3.0.0",
                 "changelog": "New shows are marked as soon as their poster arrives (Jellyfin downloads artwork after the scan), and after a metadata refresh. New option (on): fetch a new poster for shows whose poster is missing or a video frame. New option (off): the same for movies. The report shows when a poster is still on its way.\n",
                 "targetAbi": "12.0.0.0",
