@@ -22,6 +22,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<PosterMarkerService>();
         serviceCollection.AddSingleton<PosterRepairService>();
         serviceCollection.AddSingleton<MarkerRunner>();
+        serviceCollection.AddSingleton<SyncScheduler>();
         serviceCollection.AddHostedService<LibraryChangeWatcher>();
     }
 }

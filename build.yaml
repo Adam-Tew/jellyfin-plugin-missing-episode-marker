@@ -1,16 +1,17 @@
 ---
 name: "Missing Episode Marker"
 guid: "2c1c05ff-9147-4666-9eff-1daad3f44e07"
-version: "0.3.1.0"
+version: "0.4.0.0"
 targetAbi: "12.0.0.0"
 framework: "net10.0"
-overview: "Marks TV shows and seasons that are missing episodes, using Sonarr."
+overview: "Shows on show and season posters what Sonarr is doing: missing, stalled, downloading or on the way."
 description: >
-  Checks every series Sonarr manages for monitored episodes without a file and
-  burns a configurable "missing episodes" banner into the series and season
-  posters, so every client (including Swiftfin, Infuse and TV apps) shows it.
-  Supports a grace period for ongoing shows, special-episode rules,
-  per-series overrides and anime filler handling.
+  Asks Sonarr for missing episodes and its download queue and burns a marker into
+  show and season posters, so every client (including Swiftfin, Infuse and TV apps)
+  shows it: red for missing episodes, yellow for a stalled download, purple for
+  downloading and blue for a new episode on the way. Unmonitored shows and episodes
+  are ignored. Checks every few minutes, or instantly via a Sonarr webhook.
+  Supports a grace period, anime filler handling and poster repair.
 category: "General"
 image: "image.png"
 imageUrl: "https://raw.githubusercontent.com/Adam-Tew/jellyfin-plugin-missing-episode-marker/main/image.png"
@@ -18,6 +19,9 @@ owner: "Adam-Tew"
 artifacts:
   - "Jellyfin.Plugin.MissingEpisodeMarker.dll"
 changelog: >
-  New option to mark every season of an incomplete show (so "Recently added" shows the
-  marker even when it shows a complete season). The report updates itself while the
-  Status tab is open. The settings page shows the installed version.
+  Sonarr decides what counts: unmonitored shows and episodes are ignored (specials rules
+  and the TV shows tab are removed). New markers for stalled downloads (yellow),
+  downloading (purple) and new episodes on the way (blue), each with its own colours and
+  text; seasons and covers show the most important one. Checks every few minutes
+  (configurable) and instantly via a Sonarr webhook; see the README for setup.
+  Banner colours and texts moved to the Markers tab, please check them after updating.

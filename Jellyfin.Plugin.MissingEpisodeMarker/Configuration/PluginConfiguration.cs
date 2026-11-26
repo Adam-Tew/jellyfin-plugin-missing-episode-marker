@@ -3,52 +3,16 @@ using MediaBrowser.Model.Plugins;
 
 namespace Jellyfin.Plugin.MissingEpisodeMarker.Configuration;
 
-/// <summary>Where special episodes (season 0) are selected from.</summary>
-public enum SpecialsSource
-{
-    /// <summary>A special counts when Sonarr has it monitored.</summary>
-    SonarrMonitoring = 0,
-
-    /// <summary>A special counts when it is selected in the plugin (per-series list, empty = all).</summary>
-    PluginSelection = 1,
-}
-
-/// <summary>Which series have their specials considered by default.</summary>
-public enum SpecialsMode
-{
-    /// <summary>Specials never count (series rules for specials are ignored).</summary>
-    Off = 0,
-
-    /// <summary>Specials count for every series, unless a series rule says Exclude.</summary>
-    AllSeries = 1,
-
-    /// <summary>Specials only count for series that have an Include rule.</summary>
-    OnlyIncludedSeries = 2,
-}
-
-/// <summary>Per-series override for specials.</summary>
-public enum SpecialsOverride
-{
-    /// <summary>Follow the global setting.</summary>
-    Default = 0,
-
-    /// <summary>Always consider this series' specials.</summary>
-    Include = 1,
-
-    /// <summary>Never consider this series' specials.</summary>
-    Exclude = 2,
-}
-
-/// <summary>Per-series override for anime filler.</summary>
+/// <summary>Per-anime override for filler.</summary>
 public enum FillerOverride
 {
     /// <summary>Follow the global setting.</summary>
     Default = 0,
 
-    /// <summary>Missing filler episodes count as missing for this series.</summary>
+    /// <summary>Missing filler episodes count for this anime.</summary>
     Count = 1,
 
-    /// <summary>Missing filler episodes are ignored for this series.</summary>
+    /// <summary>Missing filler episodes are ignored for this anime.</summary>
     Ignore = 2,
 }
 
@@ -84,30 +48,30 @@ public enum TimeUnit
     Years = 3,
 }
 
-/// <summary>How often the full check runs on its own.</summary>
-public enum CheckSchedule
+/// <summary>
+/// The kind of marker, ordered by importance (a higher value wins when combining seasons into a show).
+/// </summary>
+public enum MarkerState
 {
-    /// <summary>Never on a timer (only manual, after scans and on library changes).</summary>
-    Off = 0,
+    /// <summary>Nothing to show.</summary>
+    None = 0,
 
-    /// <summary>Every hour.</summary>
-    Hourly = 1,
+    /// <summary>Blue: the show is complete and a new episode (within the grace period) is downloading.</summary>
+    Incoming = 1,
 
-    /// <summary>Every 6 hours.</summary>
-    Every6Hours = 2,
+    /// <summary>Purple: missing episodes (past the grace period) are all being downloaded.</summary>
+    Downloading = 2,
 
-    /// <summary>Every 12 hours.</summary>
-    Every12Hours = 3,
+    /// <summary>Yellow: a download is stalled or needs attention.</summary>
+    Stalled = 3,
 
-    /// <summary>Once a day.</summary>
-    Daily = 4,
-
-    /// <summary>Once a week.</summary>
-    Weekly = 5,
+    /// <summary>Red: episodes are missing and nothing is fetching them.</summary>
+    Missing = 4,
 }
 
 /// <summary>
-/// A rule that changes how one particular series is handled.
+/// A rule for one anime: how its filler is handled.
+/// (Everything else follows Sonarr: unmonitored episodes and series are ignored.)
 /// </summary>
 public class SeriesRule
 {
@@ -117,22 +81,10 @@ public class SeriesRule
     /// <summary>Gets or sets the series title (for display only).</summary>
     public string Title { get; set; } = string.Empty;
 
-    /// <summary>Gets or sets a value indicating whether the series is anime (decides which tab shows the rule).</summary>
-    public bool IsAnime { get; set; }
+    /// <summary>Gets or sets a value indicating whether the series is anime.</summary>
+    public bool IsAnime { get; set; } = true;
 
-    /// <summary>Gets or sets a value indicating whether this series is never marked.</summary>
-    public bool IgnoreSeries { get; set; }
-
-    /// <summary>Gets or sets the specials override.</summary>
-    public SpecialsOverride Specials { get; set; } = SpecialsOverride.Default;
-
-    /// <summary>
-    /// Gets or sets which special episode numbers count, e.g. "1,3,5-7".
-    /// Only used when <see cref="PluginConfiguration.SpecialsSource"/> is PluginSelection. Empty means all.
-    /// </summary>
-    public string SpecialEpisodes { get; set; } = string.Empty;
-
-    /// <summary>Gets or sets the filler override (anime only).</summary>
+    /// <summary>Gets or sets the filler override.</summary>
     public FillerOverride Filler { get; set; } = FillerOverride.Default;
 
     /// <summary>Gets or sets the animefillerlist slug, e.g. "naruto-shippuden". Empty = detect automatically.</summary>
@@ -158,32 +110,37 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>Gets or sets the Sonarr API key.</summary>
     public string SonarrApiKey { get; set; } = string.Empty;
 
-    /// <summary>Gets or sets a value indicating whether series Sonarr does not monitor are skipped.</summary>
-    public bool OnlyMonitoredSeries { get; set; } = true;
+    /// <summary>Gets or sets the secret key Sonarr's webhook must send. Generated on first start.</summary>
+    public string WebhookToken { get; set; } = string.Empty;
+
+    // ---------------- When to check ----------------
+
+    /// <summary>Gets or sets how often (minutes) the plugin asks Sonarr for changes. 0 = never on a timer.</summary>
+    public int CheckIntervalMinutes { get; set; } = 2;
+
+    /// <summary>Gets or sets a value indicating whether the plugin reacts to library changes in Jellyfin.</summary>
+    public bool ReactToLibraryChanges { get; set; } = true;
+
+    /// <summary>Gets or sets a value indicating whether a check also runs after every library scan.</summary>
+    public bool RunAfterLibraryScan { get; set; } = true;
 
     // ---------------- Detection ----------------
 
-    /// <summary>Gets or sets the grace period amount before a missing episode of an ongoing show counts.</summary>
+    /// <summary>Gets or sets the grace period amount before a missing episode counts.</summary>
     public int GracePeriodAmount { get; set; } = 4;
 
     /// <summary>Gets or sets the grace period unit.</summary>
     public TimeUnit GracePeriodUnit { get; set; } = TimeUnit.Weeks;
 
-    /// <summary>Gets or sets a value indicating whether the grace period also applies to ended shows.</summary>
+    /// <summary>Gets or sets a value indicating whether the grace period also applies to shows that have ended.</summary>
     public bool ApplyGraceToEndedShows { get; set; }
-
-    /// <summary>Gets or sets which series consider specials.</summary>
-    public SpecialsMode SpecialsMode { get; set; } = SpecialsMode.Off;
-
-    /// <summary>Gets or sets where specials are selected from.</summary>
-    public SpecialsSource SpecialsSource { get; set; } = SpecialsSource.SonarrMonitoring;
 
     // ---------------- Anime ----------------
 
     /// <summary>Gets or sets a value indicating whether anime series (Sonarr type "anime") are checked at all.</summary>
     public bool AnimeEnabled { get; set; } = true;
 
-    /// <summary>Gets or sets a value indicating whether missing filler episodes count as missing.</summary>
+    /// <summary>Gets or sets a value indicating whether missing filler episodes count.</summary>
     public bool CountMissingFiller { get; set; }
 
     /// <summary>Gets or sets a value indicating whether "mixed canon/filler" episodes are treated as filler.</summary>
@@ -203,48 +160,43 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>Gets or sets a value indicating whether marking is enabled. When off, all posters are restored.</summary>
     public bool MarkingEnabled { get; set; } = true;
 
-    /// <summary>Gets or sets a value indicating whether a check also runs after every library scan.</summary>
-    public bool RunAfterLibraryScan { get; set; } = true;
-
-    /// <summary>
-    /// Gets or sets a value indicating whether the plugin reacts to library changes right away:
-    /// it re-applies a marker when Jellyfin swaps a marked poster, and rechecks a series when episodes are added or removed.
-    /// </summary>
-    public bool ReactToLibraryChanges { get; set; } = true;
-
-    /// <summary>Gets or sets how often the full check runs on its own.</summary>
-    public CheckSchedule Schedule { get; set; } = CheckSchedule.Daily;
-
-    /// <summary>
-    /// Gets or sets a value indicating whether missing or landscape (video-frame) series posters are fetched again
-    /// (image only). Marked series get their marker as soon as the new poster arrives.
-    /// </summary>
-    public bool RepairShowPosters { get; set; } = true;
-
-    /// <summary>Gets or sets a value indicating whether missing or landscape movie posters are fetched again (movies are never marked).</summary>
-    public bool RepairMoviePosters { get; set; }
-
-    /// <summary>Gets or sets a value indicating whether the plugin has an entry in the dashboard menu.</summary>
-    public bool ShowInMenu { get; set; }
-
     /// <summary>Gets or sets a value indicating whether series posters are marked.</summary>
     public bool MarkSeries { get; set; } = true;
 
     /// <summary>Gets or sets a value indicating whether season posters are marked.</summary>
     public bool MarkSeasons { get; set; } = true;
 
-    /// <summary>
-    /// Gets or sets a value indicating whether every season of an incomplete show is marked,
-    /// not only the seasons that are missing episodes. Useful because "Recently added" may show a complete season.
-    /// </summary>
-    public bool MarkAllSeasonsOfIncompleteShows { get; set; }
+    // ---------------- Poster repair ----------------
 
-    /// <summary>Gets or sets the text for complete seasons of an incomplete show.</summary>
-    public string CompleteSeasonBannerText { get; set; } = "SHOW INCOMPLETE";
+    /// <summary>Gets or sets a value indicating whether missing or landscape show posters are fetched again (image only).</summary>
+    public bool RepairShowPosters { get; set; } = true;
 
-    // ---------------- Appearance ----------------
+    /// <summary>Gets or sets a value indicating whether missing or landscape movie posters are fetched again.</summary>
+    public bool RepairMoviePosters { get; set; }
 
-    /// <summary>Gets or sets a value indicating whether a colour filter is laid over the whole poster.</summary>
+    /// <summary>Gets or sets a value indicating whether the plugin has an entry in the dashboard menu.</summary>
+    public bool ShowInMenu { get; set; }
+
+    // ---------------- Appearance (shared) ----------------
+
+    /// <summary>Gets or sets a value indicating whether a banner is drawn.</summary>
+    public bool BannerEnabled { get; set; } = true;
+
+    /// <summary>Gets or sets the banner position.</summary>
+    public BannerPosition BannerPosition { get; set; } = BannerPosition.Bottom;
+
+    /// <summary>Gets or sets the banner opacity, 0-100.</summary>
+    public int BannerOpacity { get; set; } = 90;
+
+    /// <summary>Gets or sets the banner height as a percentage of the poster height.</summary>
+    public int BannerSizePercent { get; set; } = 11;
+
+    // ---------------- Red: missing ----------------
+
+    /// <summary>Gets or sets a value indicating whether "missing" posters are turned grey.</summary>
+    public bool Grayscale { get; set; } = true;
+
+    /// <summary>Gets or sets a value indicating whether a colour filter is laid over "missing" posters.</summary>
     public bool FilterEnabled { get; set; } = true;
 
     /// <summary>Gets or sets the filter colour (hex).</summary>
@@ -253,35 +205,59 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>Gets or sets the filter opacity, 0-100.</summary>
     public int FilterOpacity { get; set; } = 35;
 
-    /// <summary>Gets or sets a value indicating whether the poster is turned grey (desaturated).</summary>
-    public bool Grayscale { get; set; } = true;
+    /// <summary>Gets or sets the "missing" banner colour.</summary>
+    public string MissingColor { get; set; } = "#C62828";
 
-    /// <summary>Gets or sets a value indicating whether the banner is drawn.</summary>
-    public bool BannerEnabled { get; set; } = true;
+    /// <summary>Gets or sets the "missing" text colour.</summary>
+    public string MissingTextColor { get; set; } = "#FFFFFF";
 
-    /// <summary>Gets or sets the banner position.</summary>
-    public BannerPosition BannerPosition { get; set; } = BannerPosition.Bottom;
+    /// <summary>Gets or sets the "missing" text. {count} = number of episodes.</summary>
+    public string MissingText { get; set; } = "MISSING EPISODES";
 
-    /// <summary>Gets or sets the banner colour (hex).</summary>
-    public string BannerColor { get; set; } = "#C62828";
+    // ---------------- Yellow: stalled ----------------
 
-    /// <summary>Gets or sets the banner opacity, 0-100.</summary>
-    public int BannerOpacity { get; set; } = 90;
+    /// <summary>Gets or sets a value indicating whether the "stalled" marker is used.</summary>
+    public bool StalledEnabled { get; set; } = true;
 
-    /// <summary>Gets or sets the banner height as a percentage of the poster height.</summary>
-    public int BannerSizePercent { get; set; } = 11;
+    /// <summary>Gets or sets the "stalled" banner colour.</summary>
+    public string StalledColor { get; set; } = "#F9A825";
 
-    /// <summary>Gets or sets the text colour (hex).</summary>
-    public string TextColor { get; set; } = "#FFFFFF";
+    /// <summary>Gets or sets the "stalled" text colour.</summary>
+    public string StalledTextColor { get; set; } = "#1A1A1A";
 
-    /// <summary>Gets or sets the series banner text. {count} is replaced by the number of missing episodes.</summary>
-    public string SeriesBannerText { get; set; } = "MISSING EPISODES";
+    /// <summary>Gets or sets the "stalled" text.</summary>
+    public string StalledText { get; set; } = "DOWNLOAD STALLED";
 
-    /// <summary>Gets or sets the season banner text. {count} is replaced by the number of missing episodes.</summary>
-    public string SeasonBannerText { get; set; } = "MISSING {count}";
+    // ---------------- Purple: downloading ----------------
+
+    /// <summary>Gets or sets a value indicating whether the "downloading" marker is used.</summary>
+    public bool DownloadingEnabled { get; set; } = true;
+
+    /// <summary>Gets or sets the "downloading" banner colour.</summary>
+    public string DownloadingColor { get; set; } = "#7B1FA2";
+
+    /// <summary>Gets or sets the "downloading" text colour.</summary>
+    public string DownloadingTextColor { get; set; } = "#FFFFFF";
+
+    /// <summary>Gets or sets the "downloading" text.</summary>
+    public string DownloadingText { get; set; } = "DOWNLOADING";
+
+    // ---------------- Blue: new episode on the way ----------------
+
+    /// <summary>Gets or sets a value indicating whether the "new episode on the way" marker is used.</summary>
+    public bool IncomingEnabled { get; set; } = true;
+
+    /// <summary>Gets or sets the "new episode on the way" banner colour.</summary>
+    public string IncomingColor { get; set; } = "#1E88E5";
+
+    /// <summary>Gets or sets the "new episode on the way" text colour.</summary>
+    public string IncomingTextColor { get; set; } = "#FFFFFF";
+
+    /// <summary>Gets or sets the "new episode on the way" text.</summary>
+    public string IncomingText { get; set; } = "NEW EPISODE ON THE WAY";
 
     // ---------------- Rules ----------------
 
-    /// <summary>Gets or sets the per-series rules.</summary>
+    /// <summary>Gets or sets the per-anime filler rules.</summary>
     public List<SeriesRule> SeriesRules { get; set; } = new List<SeriesRule>();
 }

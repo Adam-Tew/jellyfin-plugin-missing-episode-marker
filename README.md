@@ -4,16 +4,16 @@
 
 # Missing Episode Marker
 
-A Jellyfin plugin that marks TV shows and seasons that are missing episodes, so
-viewers never skip an episode without knowing it.
+A Jellyfin plugin that shows on the poster what **Sonarr** is doing with a show:
+episodes are missing, a download is stuck, episodes are downloading, or a new
+episode is on its way. Viewers never skip an episode without knowing it.
 
-It asks **Sonarr** which episodes are missing and draws a marker (a grey filter
-and/or a banner) **into the poster image itself**. Because the marker is part of the
-image, every app shows it: the web interface, Android and iOS, Samsung/LG TV apps,
-Swiftfin, Infuse and so on.
+The marker (a coloured banner, plus a grey filter for missing episodes) is drawn
+**into the poster image itself**, so every app shows it: the web interface, Android
+and iOS, Samsung/LG TV apps, Swiftfin, Infuse and so on.
 
 <p align="center">
-  <img src="docs/images/before-after.png" alt="A complete show next to a show with missing episodes" width="520">
+  <img src="docs/images/markers.png" alt="The four markers: missing, download stalled, downloading, new episode on the way" width="860">
 </p>
 
 Requires **Jellyfin 12.x** and **Sonarr v3 or newer**.
@@ -22,70 +22,69 @@ Requires **Jellyfin 12.x** and **Sonarr v3 or newer**.
 
 - [Features](#features)
 - [Install](#install)
+- [Set up the Sonarr webhook](#set-up-the-sonarr-webhook)
 - [Settings](#settings)
 - [How it works](#how-it-works)
 - [Troubleshooting](#troubleshooting)
+- [Updating from 0.3](#updating-from-03)
 - [Removing the plugin](#removing-the-plugin)
 - [Releasing a new version](#releasing-a-new-version-maintainers)
 
 ## Features
 
-**Detection**
-- **Ended shows** are marked when any monitored episode has no file.
-- **Ongoing shows** are marked once a missing episode aired longer ago than a grace
-  period you choose (days, weeks, months or years). Gaps in older seasons count too.
-- Unaired episodes and episodes without an air date (TBA) never count.
-- **Specials (season 0):** ignore them, count them for every show, or only for shows
-  you pick. Choose which specials count via Sonarr monitoring, or tick them in a list
-  that shows titles and air dates.
-- **Anime:** missing filler (and optionally "mixed canon/filler") episodes can be
-  ignored. Filler lists come from animefillerlist.com (cached, address configurable)
-  or can be typed in by hand per series.
-- **Per-series rules:** never mark a show, include or exclude its specials, override
-  filler handling. Search for series and give several the same rule at once; shows
-  and anime have their own tabs.
+**Four markers**
 
-**Markers**
-- Marks **series posters** and **season posters**. Season banners can show the number
-  of missing episodes, e.g. `MISSING {count}` → "MISSING 3".
-- Optionally marks **every season of an incomplete show**, so the "Recently added" row
-  (which often shows a single season) shows the marker too.
-- Grey poster, colour filter with adjustable opacity, and a banner at the **top**,
-  **bottom**, **diagonally** or as a **corner ribbon**, in any colour and text.
-- Live **preview** on the settings page, drawn on one of your own posters.
+| Marker | When |
+|---|---|
+| 🟥 **Missing episodes** (grey poster, red banner) | An episode aired longer ago than the grace period, has no file and is not downloading |
+| 🟨 **Download stalled** | An episode is in Sonarr's queue with a warning or error: stalled, failed, waiting for a manual import, … |
+| 🟪 **Downloading** | An episode that is past the grace period is downloading |
+| 🟦 **New episode on the way** | An episode is downloading while still within the grace period, or before it has even aired |
+
+- Each **season** shows its most important marker, and the **show cover** the most
+  important of all its seasons: *missing > stalled > downloading > on the way*.
+  Seasons with nothing going on stay unmarked.
+- An episode within the grace period that is not downloading gets no marker.
+- Stalled, downloading and on-the-way can each be turned off, and every marker has its
+  own colours and text. Texts can include the number of episodes, e.g. `MISSING {count}`.
+- Banner at the **top**, **bottom**, **diagonally** or as a **corner ribbon**, with a live
+  **preview** of all four markers on one of your own posters.
 
 <p align="center">
   <img src="docs/images/banner-positions.png" alt="Banner positions: top, bottom, diagonal and corner ribbon" width="860">
 </p>
 
-<p align="center">
-  <img src="docs/images/season-markers.png" alt="Season markers: a season missing 3 episodes, and a complete season of an incomplete show" width="520">
-</p>
+**Sonarr decides what counts**
+- Only shows and episodes that are **monitored** in Sonarr are checked. Don't care about
+  a show's specials, or an old season? Unmonitor them in Sonarr and they never cause a marker.
+- **Ended shows** are marked as soon as an episode is missing (the grace period can be
+  applied to them too, if you prefer).
+- **Anime:** missing filler (and optionally "mixed canon/filler") episodes can be ignored.
+  Filler lists come from animefillerlist.com (cached) or can be typed in by hand per anime.
 
-**Keeps itself up to date**
-- When Jellyfin downloads a new show's poster after a scan, or a metadata refresh
-  replaces a marked poster, the marker is applied within seconds.
-- About 1.5 minutes after episodes are added or removed, that show is rechecked: the
-  count updates, and the original poster returns when the show is complete.
-- Saving settings that affect detection or appearance starts a new check by itself.
-- A full check runs on a schedule you choose (off / hourly / 6 h / 12 h / daily /
-  weekly) and optionally after every library scan.
+**Fast**
+- A check is three requests to Sonarr (shows, missing episodes, download queue), so it
+  can run every couple of minutes. The interval is up to you.
+- With the **Sonarr webhook**, markers change within seconds of Sonarr grabbing,
+  importing or deleting an episode.
+- When Jellyfin downloads a new show's poster later, or a metadata refresh replaces a
+  marked poster, the marker is applied again within seconds.
+- Saving settings that change markers starts a new check by itself.
 
 **Poster repair**
 - Shows whose poster is missing, or is a frame from the video (wide instead of tall),
-  get a fresh poster fetched from Jellyfin's image providers. Only the poster is
-  refreshed; each item is tried at most once a week.
+  get a fresh poster from Jellyfin's image providers. Only the poster is refreshed;
+  each item is tried at most once a week.
 - Optional: the same for **movies** (movies are never marked).
 
 **Status & report**
-- Progress bar with an estimated time left.
-- A report of every incomplete show: which episodes are missing, per season, and
-  whether its poster could be marked. Updates itself while open.
+- Every show with a marker, its state per season, and the episodes behind it (with air
+  dates). Updates itself while open.
 
 **Safe**
 - Original poster files are never changed. Jellyfin is pointed at a marked copy, and
-  back at the original when the show is complete, when marking is turned off, or when
-  the plugin is uninstalled.
+  back at the original when nothing is going on any more, when marking is turned off,
+  or when the plugin is uninstalled.
 
 ## Install
 
@@ -99,45 +98,100 @@ Requires **Jellyfin 12.x** and **Sonarr v3 or newer**.
    enter your Sonarr URL as the *Jellyfin server* reaches it (for example
    `http://sonarr:8989` when both run on the same Docker network) and the API key
    (Sonarr → Settings → General), then click **Save & test connection**.
-5. On the **Status & report** tab, click **Run check now**.
+5. [Set up the Sonarr webhook](#set-up-the-sonarr-webhook) (recommended, two minutes).
+6. On the **Status & report** tab, click **Check now**.
 
 **Updating:** when a new version is listed, install it from the catalog (or let
 "Update Plugins" do it if automatic updates are on for the plugin), then restart
 Jellyfin. The settings page shows the installed version next to its title.
 
+## Set up the Sonarr webhook
+
+Without the webhook the plugin still works: it checks Sonarr every few minutes
+(*Check Sonarr every … minutes* on the General tab). With it, Sonarr tells the plugin
+right away when something happens, so markers change within seconds.
+
+1. In Jellyfin, open the plugin's **General** tab. Under *Sonarr webhook*, fill in
+   **Jellyfin address as Sonarr reaches it**:
+   - same Docker network as Sonarr: `http://jellyfin:8096` (the Jellyfin container name),
+   - otherwise the server's local address, e.g. `http://192.168.1.10:8096`.
+
+   Avoid a public address that sits behind a login page (e.g. a reverse proxy with SSO);
+   Sonarr can't get past that.
+2. Click **Copy URL**. It looks like
+   `http://jellyfin:8096/MissingEpisodeMarker/Webhook?token=…`
+3. In **Sonarr**, go to **Settings → Connect**, click **+** and choose **Webhook**.
+4. Fill in:
+   - **Name:** `Jellyfin markers` (anything you like)
+   - **Notification triggers:** tick **On Grab**, **On File Import**, **On File Upgrade**,
+     **On Import Complete** (if listed), **On Series Delete**, **On Episode File Delete**
+     and **On Manual Interaction Required** (if listed). The others aren't needed.
+   - **Webhook URL:** paste the URL from step 2
+   - **Method:** `POST`
+   - **Username / Password:** leave empty
+5. Click **Test**. A green tick means Sonarr reached Jellyfin. Then click **Save**.
+
+The token in the URL is a secret: anyone with the URL can make the plugin run a check
+(nothing more). If it leaks, click **New secret** on the General tab and paste the new
+URL into Sonarr.
+
+Not everything sends an event: a download that stalls, or an episode passing the grace
+period, is picked up by the regular timer check.
+
 ## Settings
 
 | Tab | What you set there |
 |---|---|
-| **General** | Sonarr connection; full-check schedule; react to library changes; check after library scans; poster repair for shows and movies; dashboard menu entry |
-| **Status & report** | Run a check, progress, the incomplete-show report, remove all markers |
-| **Detection & appearance** | Grace period; whether ended shows get a grace period; which posters to mark; filter, banner, colours, texts; preview |
-| **TV shows** | How specials count; rules for individual shows, including a specials picker |
-| **Anime** | Anime on/off; whether missing filler counts; filler list source; rules for individual anime (filler list page, manual filler list) |
+| **General** | Sonarr connection; how often to check; Sonarr webhook URL and setup steps; react to library changes; check after library scans; poster repair for shows and movies; dashboard menu entry |
+| **Status & report** | Check now, the report of every show with a marker, remove all markers |
+| **Markers** | Marking on/off; show covers and/or season posters; grace period; banner position, size and opacity; colours, text and on/off per marker; grey and filter for missing episodes; preview |
+| **Anime** | Anime on/off; whether missing filler counts; filler list source; adjustments per anime (filler handling, filler list page, manual filler list) |
 
 Settings with a **?** next to them have an explanation with an example.
-Results of a check apply straight away; **Save** is only for settings.
+Check results apply straight away; **Save** is only for settings.
 
 ## How it works
 
-1. Sonarr series are matched to Jellyfin series by TVDB id (then IMDb, then TMDB).
-   Only series managed by Sonarr are checked.
-2. For each series, the plugin decides which missing episodes count (grace period,
-   specials, filler, rules).
-3. For each incomplete series and season, it draws a marked copy of the poster into
-   `<jellyfin data>/missing-episode-marker/posters/` and points Jellyfin at it.
-4. It remembers what should be marked, so posters that arrive or change later are
-   marked automatically, and it restores the original when a show is complete.
+1. Every few minutes (and on webhook events), the plugin asks Sonarr for its shows, its
+   **Wanted → Missing** list (monitored episodes without a file) and its **download queue**.
+2. Sonarr shows are matched to Jellyfin shows by TVDB id (then IMDb, then TMDB).
+   Unmonitored shows are skipped.
+3. Each episode gets a state (missing / stalled / downloading / on the way / nothing);
+   seasons and the show take their most important state.
+4. For every season and show that needs a marker, a marked copy of the poster is drawn
+   into `<jellyfin data>/missing-episode-marker/posters/` and Jellyfin is pointed at it.
+   Only posters whose marker changed are redrawn.
+5. It remembers what should be marked, so posters that arrive or change later are marked
+   automatically, and it restores the original poster when the marker is no longer needed.
 
 ## Troubleshooting
 
-- **The report lists a show but its poster isn't marked:** look at the *Poster*
-  column. "No poster yet; marked as soon as one arrives" means Jellyfin hasn't
-  downloaded artwork yet; the marker appears when it does.
-- **"Recently added" shows an unmarked poster:** that row often shows a single season.
-  Turn on *Mark every season of an incomplete show*.
+- **A show I don't care about is marked:** unmonitor the show (or the episodes) in Sonarr.
+- **The report lists a show but its poster isn't marked:** look at the *Poster* column.
+  "No poster yet; marked as soon as one arrives" means Jellyfin hasn't downloaded artwork
+  yet; the marker appears when it does.
+- **Sonarr's webhook Test fails:** Sonarr can't reach the address in the URL. Use the
+  Jellyfin container name on a shared Docker network, or the server's local IP and port.
+  A 401 error means the token is wrong; copy the URL again.
+- **Markers are slow to change:** check that the webhook is set up, or lower
+  *Check Sonarr every … minutes*.
 - **Apps still show the old poster:** apps cache images; refresh or reopen the app.
 - **Details:** Dashboard → Logs, search for "Missing Episode Marker" or the show's name.
+
+## Updating from 0.3
+
+0.4 lets Sonarr decide what counts, and adds the stalled, downloading and on-the-way markers.
+
+- The **TV shows** tab is gone. Specials rules, "never mark" and the specials picker are
+  replaced by Sonarr's monitoring: unmonitor what shouldn't count.
+- Anime adjustments (filler handling, filler list page, manual filler) are kept.
+- "Mark every season of an incomplete show" is gone: seasons are only marked when
+  something is going on in them.
+- The banner colour and text are now set per marker on the **Markers** tab; please
+  check them after updating. Grey and filter only apply to missing episodes.
+- The full-check schedule is replaced by *Check Sonarr every … minutes* (default 2).
+  The scheduled task "Mark series with missing episodes" still exists for running a
+  check by hand; any timer you set on it in 0.3 can be removed.
 
 ## Removing the plugin
 

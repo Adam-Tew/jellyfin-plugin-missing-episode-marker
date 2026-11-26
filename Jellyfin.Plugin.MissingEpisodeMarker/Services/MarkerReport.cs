@@ -1,38 +1,43 @@
 using System;
 using System.Collections.Generic;
-using Jellyfin.Plugin.MissingEpisodeMarker.Detection;
 
 namespace Jellyfin.Plugin.MissingEpisodeMarker.Services;
 
-/// <summary>Result of the last run, shown on the settings page.</summary>
+/// <summary>Result of the last check, shown on the settings page.</summary>
 public class MarkerReport
 {
-    /// <summary>Gets or sets when the run finished (UTC).</summary>
+    /// <summary>Gets or sets when the check finished (UTC).</summary>
     public DateTime? FinishedUtc { get; set; }
 
-    /// <summary>Gets or sets a value indicating whether the run succeeded.</summary>
+    /// <summary>Gets or sets a value indicating whether the check succeeded.</summary>
     public bool Success { get; set; }
 
     /// <summary>Gets or sets a status or error message.</summary>
-    public string Message { get; set; } = "Not run yet.";
+    public string Message { get; set; } = "Not checked yet.";
 
-    /// <summary>Gets or sets how many series were checked.</summary>
+    /// <summary>Gets or sets what started the check (interval, webhook, library change, ...).</summary>
+    public string Reason { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets how many monitored series were checked.</summary>
     public int SeriesChecked { get; set; }
 
     /// <summary>Gets or sets how many Sonarr series have no matching series in Jellyfin.</summary>
     public int SeriesNotInJellyfin { get; set; }
 
-    /// <summary>Gets or sets how many posters the plugin asked Jellyfin to fetch again during the run.</summary>
+    /// <summary>Gets or sets how many unmonitored series were skipped.</summary>
+    public int SeriesUnmonitored { get; set; }
+
+    /// <summary>Gets or sets how many posters the plugin asked Jellyfin to fetch again.</summary>
     public int PostersRepaired { get; set; }
 
     /// <summary>Gets or sets how many posters are currently marked.</summary>
     public int PostersMarked { get; set; }
 
-    /// <summary>Gets the incomplete series.</summary>
-    public List<SeriesReport> IncompleteSeries { get; } = new List<SeriesReport>();
+    /// <summary>Gets the series that have a marker.</summary>
+    public List<SeriesReport> Series { get; } = new List<SeriesReport>();
 }
 
-/// <summary>One incomplete series in the report.</summary>
+/// <summary>One series with a marker.</summary>
 public class SeriesReport
 {
     /// <summary>Gets or sets the title.</summary>
@@ -47,21 +52,68 @@ public class SeriesReport
     /// <summary>Gets or sets a value indicating whether it is anime.</summary>
     public bool IsAnime { get; set; }
 
-    /// <summary>Gets or sets the number of counted missing episodes.</summary>
-    public int MissingCount { get; set; }
+    /// <summary>Gets or sets the show's marker (Missing, Stalled, Downloading, Incoming).</summary>
+    public string State { get; set; } = string.Empty;
 
-    /// <summary>Gets or sets the number of ignored missing episodes.</summary>
-    public int IgnoredCount { get; set; }
+    /// <summary>Gets or sets how many episodes are missing (red).</summary>
+    public int Missing { get; set; }
+
+    /// <summary>Gets or sets how many episodes are stalled (yellow).</summary>
+    public int Stalled { get; set; }
+
+    /// <summary>Gets or sets how many episodes are downloading (purple).</summary>
+    public int Downloading { get; set; }
+
+    /// <summary>Gets or sets how many episodes are on the way (blue).</summary>
+    public int Incoming { get; set; }
+
+    /// <summary>Gets or sets how many missing episodes are still within the grace period.</summary>
+    public int WithinGrace { get; set; }
 
     /// <summary>Gets or sets where filler data came from.</summary>
     public string? FillerSource { get; set; }
 
-    /// <summary>Gets or sets what happened to the series poster (Marked, NoPoster, NotLocal, ...).</summary>
+    /// <summary>Gets or sets what happened to the show poster.</summary>
     public string PosterStatus { get; set; } = string.Empty;
 
-    /// <summary>Gets the missing count per season.</summary>
-    public Dictionary<int, int> MissingPerSeason { get; } = new Dictionary<int, int>();
+    /// <summary>Gets the seasons with a marker.</summary>
+    public List<SeasonReport> Seasons { get; } = new List<SeasonReport>();
 
-    /// <summary>Gets the first missing episodes (capped).</summary>
-    public List<MissingEpisode> Missing { get; } = new List<MissingEpisode>();
+    /// <summary>Gets the episodes behind the markers (capped).</summary>
+    public List<EpisodeReport> Episodes { get; } = new List<EpisodeReport>();
+}
+
+/// <summary>One season with a marker.</summary>
+public class SeasonReport
+{
+    /// <summary>Gets or sets the season number.</summary>
+    public int Season { get; set; }
+
+    /// <summary>Gets or sets the marker.</summary>
+    public string State { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets how many episodes have that marker.</summary>
+    public int Count { get; set; }
+}
+
+/// <summary>One episode behind a marker.</summary>
+public class EpisodeReport
+{
+    /// <summary>Gets or sets the season number.</summary>
+    public int Season { get; set; }
+
+    /// <summary>Gets or sets the episode number.</summary>
+    public int Episode { get; set; }
+
+    /// <summary>Gets or sets the absolute number.</summary>
+    public int? Absolute { get; set; }
+
+    /// <summary>Gets or sets the title.</summary>
+    public string? Title { get; set; }
+
+    /// <summary>Gets or sets the air date (UTC).</summary>
+    public DateTime? AirDateUtc { get; set; }
+
+    /// <summary>Gets or sets the marker this episode causes.</summary>
+    public string State { get; set; } = string.Empty;
 }

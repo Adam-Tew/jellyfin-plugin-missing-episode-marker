@@ -49,6 +49,43 @@ public class SonarrClient
             "api/v3/episode?seriesId=" + seriesId.ToString(CultureInfo.InvariantCulture),
             cancellationToken);
 
+    /// <summary>
+    /// Gets every monitored, aired episode without a file (Sonarr's Wanted → Missing), across all series.
+    /// </summary>
+    /// <param name="baseUrl">Sonarr base URL.</param>
+    /// <param name="apiKey">API key.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The episodes.</returns>
+    public Task<List<SonarrEpisode>> GetMissingAsync(string baseUrl, string apiKey, CancellationToken cancellationToken)
+        => GetAllPagesAsync<SonarrEpisode>(baseUrl, apiKey, "api/v3/wanted/missing?monitored=true&includeSeries=false&sortKey=airDateUtc&sortDirection=ascending", cancellationToken);
+
+    /// <summary>Gets Sonarr's download queue, one record per episode.</summary>
+    /// <param name="baseUrl">Sonarr base URL.</param>
+    /// <param name="apiKey">API key.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The queue.</returns>
+    public Task<List<SonarrQueueItem>> GetQueueAsync(string baseUrl, string apiKey, CancellationToken cancellationToken)
+        => GetAllPagesAsync<SonarrQueueItem>(baseUrl, apiKey, "api/v3/queue?includeEpisode=true&includeUnknownSeriesItems=false", cancellationToken);
+
+    private async Task<List<T>> GetAllPagesAsync<T>(string baseUrl, string apiKey, string path, CancellationToken cancellationToken)
+    {
+        const int PageSize = 1000;
+        const int MaxPages = 100;
+        var all = new List<T>();
+        for (var page = 1; page <= MaxPages; page++)
+        {
+            var url = path + "&page=" + page.ToString(CultureInfo.InvariantCulture) + "&pageSize=" + PageSize.ToString(CultureInfo.InvariantCulture);
+            var result = await GetAsync<SonarrPage<T>>(baseUrl, apiKey, url, cancellationToken).ConfigureAwait(false);
+            all.AddRange(result.Records);
+            if (result.Records.Count < PageSize || all.Count >= result.TotalRecords)
+            {
+                break;
+            }
+        }
+
+        return all;
+    }
+
     private async Task<T> GetAsync<T>(string baseUrl, string apiKey, string path, CancellationToken cancellationToken)
         where T : new()
     {

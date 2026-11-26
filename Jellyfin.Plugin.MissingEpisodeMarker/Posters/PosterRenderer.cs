@@ -6,7 +6,7 @@ using SkiaSharp;
 namespace Jellyfin.Plugin.MissingEpisodeMarker.Posters;
 
 /// <summary>
-/// Draws the "missing episodes" marker onto a poster image with SkiaSharp
+/// Draws a marker (missing, stalled, downloading, on the way) onto a poster image with SkiaSharp
 /// (the same graphics library Jellyfin itself uses).
 /// </summary>
 public static class PosterRenderer
@@ -29,16 +29,16 @@ public static class PosterRenderer
     /// </summary>
     /// <param name="inputPath">The original poster.</param>
     /// <param name="outputPath">Where to write the marked JPEG.</param>
-    /// <param name="config">Appearance settings.</param>
+    /// <param name="style">Appearance of the marker.</param>
     /// <param name="text">Banner text (already formatted).</param>
     /// <returns>The image width and height.</returns>
     /// <exception cref="InvalidDataException">If the image cannot be decoded.</exception>
-    public static (int Width, int Height) Render(string inputPath, string outputPath, PluginConfiguration config, string text)
+    public static (int Width, int Height) Render(string inputPath, string outputPath, MarkerStyle style, string text)
     {
         using var source = SKBitmap.Decode(inputPath)
             ?? throw new InvalidDataException("Could not decode image: " + inputPath);
 
-        using var output = DrawMarked(source, config, text);
+        using var output = DrawMarked(source, style, text);
 
         var directory = Path.GetDirectoryName(outputPath);
         if (!string.IsNullOrEmpty(directory))
@@ -62,10 +62,10 @@ public static class PosterRenderer
     /// Renders a preview with the given settings, on a real poster if one is given, otherwise on a sample.
     /// </summary>
     /// <param name="posterPath">Optional poster to preview on.</param>
-    /// <param name="config">Appearance settings.</param>
+    /// <param name="style">Appearance of the marker.</param>
     /// <param name="text">Banner text.</param>
     /// <returns>JPEG bytes.</returns>
-    public static byte[] RenderPreview(string? posterPath, PluginConfiguration config, string text)
+    public static byte[] RenderPreview(string? posterPath, MarkerStyle style, string text)
     {
         SKBitmap? source = null;
         if (!string.IsNullOrEmpty(posterPath) && File.Exists(posterPath))
@@ -76,7 +76,7 @@ public static class PosterRenderer
         source ??= CreateSamplePoster();
         try
         {
-            using var output = DrawMarked(source, config, text);
+            using var output = DrawMarked(source, style, text);
             using var image = SKImage.FromBitmap(output);
             using var data = image.Encode(SKEncodedImageFormat.Jpeg, 88);
             return data.ToArray();
@@ -104,7 +104,7 @@ public static class PosterRenderer
         return bitmap;
     }
 
-    private static SKBitmap DrawMarked(SKBitmap source, PluginConfiguration config, string text)
+    private static SKBitmap DrawMarked(SKBitmap source, MarkerStyle config, string text)
     {
         var width = source.Width;
         var height = source.Height;
@@ -144,7 +144,7 @@ public static class PosterRenderer
         return output;
     }
 
-    private static void DrawBanner(SKCanvas canvas, int width, int height, PluginConfiguration config, string text)
+    private static void DrawBanner(SKCanvas canvas, int width, int height, MarkerStyle config, string text)
     {
         var bannerHeight = Math.Max(12f, height * Math.Clamp(config.BannerSizePercent, 3, 40) / 100f);
 
@@ -192,7 +192,7 @@ public static class PosterRenderer
         float thickness,
         float angleDegrees,
         SKPaint bannerPaint,
-        PluginConfiguration config,
+        MarkerStyle config,
         string text)
     {
         canvas.Save();
