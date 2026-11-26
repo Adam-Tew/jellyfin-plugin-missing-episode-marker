@@ -191,9 +191,11 @@ public class PosterMarkerService
         }
 
         string originalPath;
+        var isStandIn = false;
         if (entry is not null && PathEquals(image.Path, entry.MarkedPath))
         {
             originalPath = entry.OriginalPath;
+            isStandIn = entry.IsStandIn;
         }
         else
         {
@@ -229,6 +231,7 @@ public class PosterMarkerService
 
         var signature = ComputeSignature(originalPath, style, text);
         if (entry is not null
+            && entry.State != MarkerState.None
             && entry.Signature == signature
             && PathEquals(image.Path, entry.MarkedPath)
             && File.Exists(entry.MarkedPath))
@@ -274,6 +277,7 @@ public class PosterMarkerService
                 ItemName = item.Name ?? string.Empty,
                 Text = text,
                 State = spec.State,
+                IsStandIn = isStandIn,
             };
             SaveState();
         }
@@ -312,7 +316,12 @@ public class PosterMarkerService
             // Only switch back if Jellyfin still points at our marked copy.
             if (image is not null && PathEquals(image.Path, entry.MarkedPath))
             {
-                if (File.Exists(entry.OriginalPath))
+                if (entry.IsStandIn)
+                {
+                    // The season had no poster of its own: go back to that.
+                    item.RemoveImage(image);
+                }
+                else if (File.Exists(entry.OriginalPath))
                 {
                     image.Path = entry.OriginalPath;
                 }
@@ -326,7 +335,14 @@ public class PosterMarkerService
                 await item.UpdateToRepositoryAsync(ItemUpdateType.ImageUpdate, cancellationToken).ConfigureAwait(false);
             }
 
-            _logger.LogInformation("Restored poster of {Name}", item.Name);
+            if (entry.State != MarkerState.None)
+            {
+                _logger.LogInformation("Restored poster of {Name}", item.Name);
+            }
+            else
+            {
+                _logger.LogDebug("Removed stand-in poster of {Name}", item.Name);
+            }
         }
 
         DeleteFileQuietly(entry.MarkedPath);
@@ -335,6 +351,131 @@ public class PosterMarkerService
             LoadState().Remove(itemId);
             SaveState();
         }
+    }
+
+    /// <summary>Counts items that currently show a marker (stand-in posters without a marker are not counted).</summary>
+    /// <returns>The number of marked posters.</returns>
+    public int CountMarked()
+    {
+        lock (_stateLock)
+        {
+            return LoadState().Values.Count(e => e.State != MarkerState.None);
+        }
+    }
+
+    /// <summary>
+    /// Gets the unmarked poster file of an item: the original behind our marked copy, or its own poster.
+    /// </summary>
+    /// <param name="item">The item (normally a series).</param>
+    /// <returns>A local file path, or null when there is no usable poster.</returns>
+    public string? GetUnmarkedPosterPath(BaseItem item)
+    {
+        var image = item.GetImageInfo(ImageType.Primary, 0);
+        if (image is null)
+        {
+            return null;
+        }
+
+        var entry = GetEntry(item.Id);
+        if (entry is not null && PathEquals(image.Path, entry.MarkedPath))
+        {
+            return File.Exists(entry.OriginalPath) ? entry.OriginalPath : null;
+        }
+
+        return image.IsLocalFile && !IsInsidePosterDirectory(image.Path) && File.Exists(image.Path) ? image.Path : null;
+    }
+
+    /// <summary>
+    /// Gives a season without a poster of its own an unmarked copy of the show poster.
+    /// Otherwise apps show the show poster in its place, including the show's marker.
+    /// Removed again like a marker (restore, "Remove all markers", uninstall).
+    /// </summary>
+    /// <param name="season">The season.</param>
+    /// <param name="seriesPosterPath">The unmarked show poster.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>True when the season now has a stand-in (new or existing, possibly marked); false when it has a real poster.</returns>
+    public async Task<bool> EnsureStandInAsync(BaseItem season, string seriesPosterPath, CancellationToken cancellationToken)
+    {
+        var image = season.GetImageInfo(ImageType.Primary, 0);
+        var entry = GetEntry(season.Id);
+        var ours = image is not null && entry is not null && PathEquals(image.Path, entry.MarkedPath);
+
+        if (image is not null && !ours)
+        {
+            // A real poster arrived (e.g. poster repair or a manual pick): forget any old stand-in.
+            if (entry is not null)
+            {
+                Forget(season.Id, entry);
+            }
+
+            return false;
+        }
+
+        if (ours && entry!.IsStandIn && entry.State == MarkerState.None && PathEquals(entry.OriginalPath, seriesPosterPath) && File.Exists(entry.MarkedPath))
+        {
+            return true; // Already in place.
+        }
+
+        if (ours && entry!.State != MarkerState.None && !entry.IsStandIn)
+        {
+            return false; // A marked real poster; handled by restore.
+        }
+
+        var standInPath = Path.Combine(
+            _paths.PosterDirectory,
+            season.Id.ToString("N", CultureInfo.InvariantCulture) + "-standin" + Path.GetExtension(seriesPosterPath));
+        try
+        {
+            File.Copy(seriesPosterPath, standInPath, true);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _logger.LogWarning(ex, "Could not copy the show poster for {Name}", season.Name);
+            return false;
+        }
+
+        if (image is not null)
+        {
+            image.Path = standInPath;
+            image.DateModified = File.GetLastWriteTimeUtc(standInPath);
+        }
+        else
+        {
+            season.SetImage(
+                new ItemImageInfo
+                {
+                    Path = standInPath,
+                    Type = ImageType.Primary,
+                    DateModified = File.GetLastWriteTimeUtc(standInPath),
+                },
+                0);
+        }
+
+        await season.UpdateToRepositoryAsync(ItemUpdateType.ImageUpdate, cancellationToken).ConfigureAwait(false);
+
+        var previous = entry?.MarkedPath;
+        lock (_stateLock)
+        {
+            LoadState()[season.Id] = new MarkerEntry
+            {
+                OriginalPath = seriesPosterPath,
+                MarkedPath = standInPath,
+                Signature = string.Empty,
+                ItemName = season.Name ?? string.Empty,
+                Text = string.Empty,
+                State = MarkerState.None,
+                IsStandIn = true,
+            };
+            SaveState();
+        }
+
+        if (previous is not null && !PathEquals(previous, standInPath))
+        {
+            DeleteFileQuietly(previous);
+        }
+
+        _logger.LogInformation("{Name} has no poster of its own; gave it the unmarked show poster", season.Name);
+        return true;
     }
 
     /// <summary>Restores every marked poster.</summary>
@@ -355,6 +496,16 @@ public class PosterMarkerService
             {
                 _logger.LogError(ex, "Could not restore poster for item {Id}", id);
             }
+        }
+    }
+
+    private void Forget(Guid itemId, MarkerEntry entry)
+    {
+        DeleteFileQuietly(entry.MarkedPath);
+        lock (_stateLock)
+        {
+            LoadState().Remove(itemId);
+            SaveState();
         }
     }
 
@@ -544,8 +695,14 @@ public class PosterMarkerService
         /// <summary>Gets or sets the banner text the poster was marked with.</summary>
         public string Text { get; set; } = string.Empty;
 
-        /// <summary>Gets or sets which marker the poster shows.</summary>
+        /// <summary>Gets or sets which marker the poster shows (None = an unmarked stand-in).</summary>
         public MarkerState State { get; set; } = MarkerState.Missing;
+
+        /// <summary>
+        /// Gets or sets a value indicating whether the season had no poster of its own and got a copy of the show poster.
+        /// Restoring removes the image again instead of switching back.
+        /// </summary>
+        public bool IsStandIn { get; set; }
     }
 }
 

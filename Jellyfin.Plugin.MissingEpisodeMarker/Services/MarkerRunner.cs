@@ -133,7 +133,7 @@ public class MarkerRunner
                     Success = false,
                     Reason = reason,
                     Message = ex.Message,
-                    PostersMarked = _posters.GetMarkedItemIds().Count,
+                    PostersMarked = _posters.CountMarked(),
                 };
             }
         }
@@ -319,6 +319,7 @@ public class MarkerRunner
         // 3. Work out the marker for each series and season.
         var desired = new Dictionary<Guid, (BaseItem Item, MarkerSpec Spec)>();
         var showPosterOwner = new Dictionary<Guid, SeriesReport>();
+        var markedCovers = new List<BaseItem>();
         var done = 0;
 
         foreach (var series in sonarrSeries)
@@ -378,6 +379,7 @@ public class MarkerRunner
                     {
                         desired[jf.Id] = (jf, Spec(config, result.State, result.Count));
                         showPosterOwner[jf.Id] = seriesReport;
+                        markedCovers.Add(jf);
                     }
 
                     if (config.MarkSeasons)
@@ -403,7 +405,7 @@ public class MarkerRunner
 
         // 5. Apply markers (only items whose marker changed are redrawn).
         var applied = 0;
-        foreach (var (id, (item, spec)) in desired)
+        foreach (var (id, (item, spec)) in desired.OrderBy(d => d.Value.Item is Season ? 1 : 0))
         {
             cancellationToken.ThrowIfCancellationRequested();
             var status = await ApplyOneAsync(item, spec, config, cancellationToken).ConfigureAwait(false);
@@ -416,18 +418,38 @@ public class MarkerRunner
             progress.Report(75 + (15.0 * applied / Math.Max(1, desired.Count)));
         }
 
-        // 6. Restore everything that should no longer be marked (complete, unmonitored, deleted, ...).
+        // 6. Seasons without a poster of their own would show the marked show cover in apps.
+        //    Fetch a season poster, or else give them an unmarked copy of the show poster.
+        var standIns = new HashSet<Guid>();
+        foreach (var cover in markedCovers)
+        {
+            foreach (var season in seasonsBySeries[cover.Id])
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (desired.ContainsKey(season.Id))
+                {
+                    continue; // Gets its own marker (and a stand-in if needed) above.
+                }
+
+                if (await EnsureSeasonPosterAsync(season, config, cancellationToken).ConfigureAwait(false))
+                {
+                    standIns.Add(season.Id);
+                }
+            }
+        }
+
+        // 7. Restore everything that should no longer be marked (complete, unmonitored, deleted, ...).
         var restored = 0;
         foreach (var id in _posters.GetMarkedItemIds())
         {
-            if (!desired.ContainsKey(id))
+            if (!desired.ContainsKey(id) && !standIns.Contains(id))
             {
                 await _posters.RestoreAsync(id, cancellationToken).ConfigureAwait(false);
                 restored++;
             }
         }
 
-        // 7. Every few hours (or when asked): fix missing or wrong posters.
+        // 8. Every few hours (or when asked): fix missing or wrong posters.
         if (fullRepair || now - _lastRepairPassUtc >= RepairPassInterval)
         {
             _lastRepairPassUtc = now;
@@ -436,7 +458,7 @@ public class MarkerRunner
 
         progress.Report(100);
         report.Series.Sort((a, b) => string.Compare(a.Title, b.Title, StringComparison.OrdinalIgnoreCase));
-        report.PostersMarked = _posters.GetMarkedItemIds().Count;
+        report.PostersMarked = _posters.CountMarked();
         report.FinishedUtc = DateTime.UtcNow;
         report.Success = true;
         report.Message = string.Format(
@@ -478,6 +500,20 @@ public class MarkerRunner
             result = ApplyResult.RenderFailed;
         }
 
+        if (result == ApplyResult.NoPoster && item is Season season
+            && await EnsureSeasonPosterAsync(season, config, cancellationToken).ConfigureAwait(false))
+        {
+            result = await _posters.ApplyAsync(_libraryManager.GetItemById(item.Id) ?? item, spec, config, cancellationToken).ConfigureAwait(false);
+        }
+        else if (result == ApplyResult.NoPoster && item is Season)
+        {
+            var fresh = _libraryManager.GetItemById(item.Id);
+            if (fresh is not null && fresh.GetImageInfo(ImageType.Primary, 0) is not null)
+            {
+                result = await _posters.ApplyAsync(fresh, spec, config, cancellationToken).ConfigureAwait(false);
+            }
+        }
+
         var status = Describe(result);
         if (result == ApplyResult.NoPoster && config.RepairShowPosters && item is Series)
         {
@@ -489,6 +525,50 @@ public class MarkerRunner
         }
 
         return status;
+    }
+
+    /// <summary>
+    /// Makes sure a season has a poster of its own: asks Jellyfin to fetch one (at most once a week),
+    /// and if there still is none, gives it an unmarked copy of the show poster.
+    /// </summary>
+    /// <param name="season">The season.</param>
+    /// <param name="config">Configuration.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>True when the season uses a stand-in copy of the show poster.</returns>
+    private async Task<bool> EnsureSeasonPosterAsync(Season season, PluginConfiguration config, CancellationToken cancellationToken)
+    {
+        var current = season;
+        var existing = _posters.GetEntry(season.Id);
+        var image = season.GetImageInfo(ImageType.Primary, 0);
+        var isOurs = existing is not null && image is not null && string.Equals(image.Path, existing.MarkedPath, StringComparison.OrdinalIgnoreCase);
+        if (image is not null && !isOurs)
+        {
+            await _posters.EnsureStandInAsync(season, string.Empty, cancellationToken).ConfigureAwait(false); // forgets an old stand-in
+            return false; // Has a real poster.
+        }
+
+        if (image is null && config.RepairShowPosters)
+        {
+            var (_, requested) = await _repair.RepairIfNeededAsync(season, cancellationToken).ConfigureAwait(false);
+            if (requested)
+            {
+                current = _libraryManager.GetItemById(season.Id) as Season ?? season;
+                if (current.GetImageInfo(ImageType.Primary, 0) is not null)
+                {
+                    _logger.LogInformation("Fetched a poster for {Series} {Season}", current.SeriesName, current.Name);
+                    return false;
+                }
+            }
+        }
+
+        var series = _libraryManager.GetItemById(current.SeriesId);
+        var seriesPoster = series is null ? null : _posters.GetUnmarkedPosterPath(series);
+        if (seriesPoster is null)
+        {
+            return false;
+        }
+
+        return await _posters.EnsureStandInAsync(current, seriesPoster, cancellationToken).ConfigureAwait(false);
     }
 
     private async Task<int> RepairPassAsync(
@@ -510,6 +590,21 @@ public class MarkerRunner
                 }
 
                 var (_, requested) = await _repair.RepairIfNeededAsync(jf, cancellationToken).ConfigureAwait(false);
+                if (requested)
+                {
+                    repaired++;
+                }
+            }
+
+            foreach (var season in GetItems(_libraryManager, BaseItemKind.Season).OfType<Season>())
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (season.GetImageInfo(ImageType.Primary, 0) is not null || desired.ContainsKey(season.Id))
+                {
+                    continue; // Has a poster (or was handled when marking).
+                }
+
+                var (_, requested) = await _repair.RepairIfNeededAsync(season, cancellationToken).ConfigureAwait(false);
                 if (requested)
                 {
                     repaired++;

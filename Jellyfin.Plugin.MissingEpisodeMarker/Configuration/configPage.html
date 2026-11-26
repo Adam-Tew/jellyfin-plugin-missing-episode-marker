@@ -157,12 +157,15 @@
                             Sometimes Jellyfin ends up with no poster, or uses a frame from the video instead of a real poster
                             (you can tell because it is wide instead of tall). With these on, the plugin asks Jellyfin to fetch
                             the poster again (every few hours, and when you click "Check now"). Only the poster is refreshed, nothing else.
-                            Each item is retried at most once a week. Movies are only repaired, never marked.
+                            Each item is retried at most once a week. Movies are only repaired, never marked.<br><br>
+                            Seasons without a poster are included: apps show the show cover in their place, which would carry the show's marker.
+                            If no season poster can be found, the season gets an unmarked copy of the show poster (this part works even with
+                            repair turned off, and is undone by "Remove all markers").
                         </div>
                         <div class="checkboxContainer">
                             <label class="emby-checkbox-label">
                                 <input id="RepairShowPosters" type="checkbox" is="emby-checkbox" />
-                                <span>Fetch new posters for shows with a missing or wrong poster</span>
+                                <span>Fetch new posters for shows and seasons with a missing or wrong poster</span>
                             </label>
                         </div>
                         <div class="checkboxContainer">

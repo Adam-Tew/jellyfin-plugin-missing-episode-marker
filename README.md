@@ -75,6 +75,11 @@ Requires **Jellyfin 12.x** and **Sonarr v3 or newer**.
 - Shows whose poster is missing, or is a frame from the video (wide instead of tall),
   get a fresh poster from Jellyfin's image providers. Only the poster is refreshed;
   each item is tried at most once a week.
+- **Seasons without a poster** get one fetched too. Apps show the show cover in place of
+  a missing season poster, so without this a complete season would show the show's
+  marker. If no season poster can be found, the season gets an unmarked copy of the
+  show poster instead (removed again with the markers). This happens even with
+  poster repair turned off.
 - Optional: the same for **movies** (movies are never marked).
 
 **Status & report**
@@ -175,6 +180,9 @@ Check results apply straight away; **Save** is only for settings.
   A 401 error means the token is wrong; copy the URL again.
 - **Markers are slow to change:** check that the webhook is set up, or lower
   *Check Sonarr every … minutes*.
+- **A complete season shows a marker:** it probably has no poster of its own, so apps
+  show the (marked) show cover. Since 0.4.1 the plugin fixes this at the next check; you
+  can also pick a poster yourself (season → ⋮ → Edit images).
 - **Apps still show the old poster:** apps cache images; refresh or reopen the app.
 - **Details:** Dashboard → Logs, search for "Missing Episode Marker" or the show's name.
 
