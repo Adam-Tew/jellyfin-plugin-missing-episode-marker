@@ -31,24 +31,18 @@ public class MarkMissingEpisodesTask : IScheduledTask
     public string Key => "MissingEpisodeMarkerRun";
 
     /// <inheritdoc />
-    public string Description => "Asks Sonarr which episodes are missing and updates the markers on series and season posters. How often it runs is set in the plugin settings.";
+    public string Description => "Asks Sonarr what is missing or downloading and updates the poster markers. The plugin already checks every few minutes on its own (see its settings); run this to check right now.";
 
     /// <inheritdoc />
     public string Category => "Missing Episode Marker";
 
     /// <inheritdoc />
     public Task ExecuteAsync(IProgress<double> progress, CancellationToken cancellationToken)
-        => _runner.RunAsync(progress, cancellationToken);
+        => _runner.RunAsync(progress, "Scheduled task", true, cancellationToken);
 
     /// <inheritdoc />
     public IEnumerable<TaskTriggerInfo> GetDefaultTriggers()
-    {
-        yield return new TaskTriggerInfo
-        {
-            Type = TaskTriggerInfoType.IntervalTrigger,
-            IntervalTicks = TimeSpan.FromDays(1).Ticks,
-        };
-    }
+        => Array.Empty<TaskTriggerInfo>(); // The plugin runs its own timer (every few minutes).
 }
 
 /// <summary>
@@ -76,6 +70,6 @@ public class MarkAfterLibraryScan : ILibraryPostScanTask
             return Task.CompletedTask;
         }
 
-        return _runner.RunAsync(progress, cancellationToken);
+        return _runner.RunAsync(progress, "Library scan", false, cancellationToken);
     }
 }

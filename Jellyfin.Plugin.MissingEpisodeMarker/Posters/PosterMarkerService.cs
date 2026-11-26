@@ -32,7 +32,7 @@ public class PosterMarkerService
     private Dictionary<Guid, MarkerEntry>? _state;
     private readonly string _wantedFile;
     private readonly object _wantedLock = new();
-    private Dictionary<Guid, string>? _wanted;
+    private Dictionary<Guid, MarkerSpec>? _wanted;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="PosterMarkerService"/> class.
@@ -46,7 +46,10 @@ public class PosterMarkerService
         _paths = paths;
         _logger = logger;
         _stateFile = Path.Combine(paths.DataDirectory, "marked-items.json");
-        _wantedFile = Path.Combine(paths.DataDirectory, "wanted-items.json");
+        _wantedFile = Path.Combine(paths.DataDirectory, "wanted-markers.json");
+
+        // Left over from 0.3 (text only, no marker state); rebuilt on the next check.
+        DeleteLegacyFile(Path.Combine(paths.DataDirectory, "wanted-items.json"));
         Current = this;
     }
 
@@ -64,23 +67,23 @@ public class PosterMarkerService
     }
 
     /// <summary>
-    /// Replaces the full set of items that should be marked (item id -> banner text).
+    /// Replaces the full set of items that should be marked (item id -> marker).
     /// Items in this set get marked as soon as they have a usable poster, even if it arrives later.
     /// </summary>
     /// <param name="wanted">The items.</param>
-    public void SetWanted(IDictionary<Guid, string> wanted)
+    public void SetWanted(IDictionary<Guid, MarkerSpec> wanted)
     {
         lock (_wantedLock)
         {
-            _wanted = new Dictionary<Guid, string>(wanted);
+            _wanted = new Dictionary<Guid, MarkerSpec>(wanted);
             SaveWanted();
         }
     }
 
     /// <summary>Updates the wanted set for some items only (e.g. one series and its seasons).</summary>
     /// <param name="scope">The items this update is about.</param>
-    /// <param name="wanted">Which of them should be marked, with their text.</param>
-    public void UpdateWanted(IEnumerable<Guid> scope, IDictionary<Guid, string> wanted)
+    /// <param name="wanted">Which of them should be marked, with their marker.</param>
+    public void UpdateWanted(IEnumerable<Guid> scope, IDictionary<Guid, MarkerSpec> wanted)
     {
         lock (_wantedLock)
         {
@@ -90,23 +93,23 @@ public class PosterMarkerService
                 set.Remove(id);
             }
 
-            foreach (var (id, text) in wanted)
+            foreach (var (id, spec) in wanted)
             {
-                set[id] = text;
+                set[id] = spec;
             }
 
             SaveWanted();
         }
     }
 
-    /// <summary>Gets the banner text for an item that should be marked, or null if it should not.</summary>
+    /// <summary>Gets the marker for an item that should be marked, or null if it should not.</summary>
     /// <param name="itemId">The item id.</param>
-    /// <returns>The text, or null.</returns>
-    public string? GetWantedText(Guid itemId)
+    /// <returns>The marker, or null.</returns>
+    public MarkerSpec? GetWanted(Guid itemId)
     {
         lock (_wantedLock)
         {
-            return LoadWanted().TryGetValue(itemId, out var text) ? text : null;
+            return LoadWanted().TryGetValue(itemId, out var spec) ? spec : null;
         }
     }
 
@@ -118,7 +121,7 @@ public class PosterMarkerService
     /// <returns>True when a marker should be (re)applied.</returns>
     public bool NeedsMarker(BaseItem item)
     {
-        if (GetWantedText(item.Id) is null)
+        if (GetWanted(item.Id) is null)
         {
             return false;
         }
@@ -165,17 +168,19 @@ public class PosterMarkerService
     /// Marks an item's poster (or updates the marker if settings/text changed).
     /// </summary>
     /// <param name="item">The series or season.</param>
-    /// <param name="text">Banner text.</param>
+    /// <param name="spec">Which marker, and its banner text.</param>
     /// <param name="config">Plugin configuration.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>What happened.</returns>
-    public async Task<ApplyResult> ApplyAsync(BaseItem item, string text, PluginConfiguration config, CancellationToken cancellationToken)
+    public async Task<ApplyResult> ApplyAsync(BaseItem item, MarkerSpec spec, PluginConfiguration config, CancellationToken cancellationToken)
     {
+        var style = MarkerStyle.For(config, spec.State);
+        var text = spec.Text;
         var image = item.GetImageInfo(ImageType.Primary, 0);
         if (image is null)
         {
             // No poster at all (e.g. a season using the series poster). Nothing to mark.
-            _logger.LogInformation("{Name} has no poster image of its own; nothing to mark", item.Name);
+            _logger.LogDebug("{Name} has no poster image of its own yet; it is marked once one arrives", item.Name);
             return ApplyResult.NoPoster;
         }
 
@@ -222,17 +227,18 @@ public class PosterMarkerService
             return ApplyResult.OriginalMissing;
         }
 
-        var signature = ComputeSignature(originalPath, config, text);
+        var signature = ComputeSignature(originalPath, style, text);
         if (entry is not null
             && entry.Signature == signature
             && PathEquals(image.Path, entry.MarkedPath)
             && File.Exists(entry.MarkedPath))
         {
-            if (entry.Text != text)
+            if (entry.Text != text || entry.State != spec.State)
             {
                 lock (_stateLock)
                 {
                     entry.Text = text;
+                    entry.State = spec.State;
                     SaveState();
                 }
             }
@@ -246,7 +252,7 @@ public class PosterMarkerService
 
         try
         {
-            PosterRenderer.Render(originalPath, markedPath, config, text);
+            PosterRenderer.Render(originalPath, markedPath, style, text);
         }
         catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException)
         {
@@ -267,6 +273,7 @@ public class PosterMarkerService
                 Signature = signature,
                 ItemName = item.Name ?? string.Empty,
                 Text = text,
+                State = spec.State,
             };
             SaveState();
         }
@@ -276,7 +283,7 @@ public class PosterMarkerService
             DeleteFileQuietly(previousMarked);
         }
 
-        _logger.LogInformation("Marked poster of {Name}", item.Name);
+        _logger.LogInformation("Marked poster of {Name} ({State})", item.Name, spec.State);
         return ApplyResult.Marked;
     }
 
@@ -335,7 +342,7 @@ public class PosterMarkerService
     /// <returns>A task.</returns>
     public async Task RestoreAllAsync(CancellationToken cancellationToken)
     {
-        SetWanted(new Dictionary<Guid, string>());
+        SetWanted(new Dictionary<Guid, MarkerSpec>());
 
         foreach (var id in GetMarkedItemIds())
         {
@@ -351,7 +358,7 @@ public class PosterMarkerService
         }
     }
 
-    private static string ComputeSignature(string originalPath, PluginConfiguration c, string text)
+    private static string ComputeSignature(string originalPath, MarkerStyle style, string text)
     {
         long originalTicks = 0;
         try
@@ -364,20 +371,11 @@ public class PosterMarkerService
 
         var raw = string.Join(
             "|",
-            "v1",
+            "v2",
             originalPath,
             originalTicks.ToString(CultureInfo.InvariantCulture),
             text,
-            c.Grayscale,
-            c.FilterEnabled,
-            c.FilterColor,
-            c.FilterOpacity,
-            c.BannerEnabled,
-            c.BannerPosition,
-            c.BannerColor,
-            c.BannerOpacity,
-            c.BannerSizePercent,
-            c.TextColor);
+            style.Describe());
 
         var hash = SHA256.HashData(Encoding.UTF8.GetBytes(raw));
         return Convert.ToHexString(hash).ToLowerInvariant();
@@ -452,7 +450,7 @@ public class PosterMarkerService
         return _state;
     }
 
-    private Dictionary<Guid, string> LoadWanted()
+    private Dictionary<Guid, MarkerSpec> LoadWanted()
     {
         if (_wanted is not null)
         {
@@ -463,7 +461,7 @@ public class PosterMarkerService
         {
             if (File.Exists(_wantedFile))
             {
-                _wanted = JsonSerializer.Deserialize<Dictionary<Guid, string>>(File.ReadAllText(_wantedFile), JsonOptions);
+                _wanted = JsonSerializer.Deserialize<Dictionary<Guid, MarkerSpec>>(File.ReadAllText(_wantedFile), JsonOptions);
             }
         }
         catch (Exception ex) when (ex is IOException or JsonException)
@@ -471,8 +469,23 @@ public class PosterMarkerService
             _logger.LogWarning(ex, "Wanted-items file is unreadable; it is rebuilt on the next check");
         }
 
-        _wanted ??= new Dictionary<Guid, string>();
+        _wanted ??= new Dictionary<Guid, MarkerSpec>();
         return _wanted;
+    }
+
+    private void DeleteLegacyFile(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            _logger.LogDebug(ex, "Could not delete {Path}", path);
+        }
     }
 
     private void SaveWanted()
@@ -530,7 +543,26 @@ public class PosterMarkerService
 
         /// <summary>Gets or sets the banner text the poster was marked with.</summary>
         public string Text { get; set; } = string.Empty;
+
+        /// <summary>Gets or sets which marker the poster shows.</summary>
+        public MarkerState State { get; set; } = MarkerState.Missing;
     }
+}
+
+/// <summary>Which marker an item should get.</summary>
+public sealed class MarkerSpec
+{
+    /// <summary>Gets or sets the marker state.</summary>
+    public MarkerState State { get; set; }
+
+    /// <summary>Gets or sets the banner text (already formatted).</summary>
+    public string Text { get; set; } = string.Empty;
+
+    /// <inheritdoc />
+    public override bool Equals(object? obj) => obj is MarkerSpec other && other.State == State && other.Text == Text;
+
+    /// <inheritdoc />
+    public override int GetHashCode() => HashCode.Combine(State, Text);
 }
 
 /// <summary>Outcome of trying to mark a poster.</summary>

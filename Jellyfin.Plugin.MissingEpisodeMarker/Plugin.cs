@@ -27,6 +27,13 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         : base(applicationPaths, xmlSerializer)
     {
         Instance = this;
+
+        // Secret for Sonarr's webhook URL; created once, can be regenerated on the settings page.
+        if (string.IsNullOrWhiteSpace(Configuration.WebhookToken))
+        {
+            Configuration.WebhookToken = NewWebhookToken();
+            SaveConfiguration();
+        }
     }
 
     /// <summary>Gets the current plugin instance.</summary>
@@ -40,7 +47,12 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
 
     /// <inheritdoc />
     public override string Description =>
-        "Marks series and seasons that are missing episodes (via Sonarr) with a banner burned into the poster.";
+        "Marks show and season posters with what Sonarr is doing: missing episodes, stalled or running downloads, and new episodes on the way.";
+
+    /// <summary>Creates a new random webhook token.</summary>
+    /// <returns>A 32-character hex token.</returns>
+    public static string NewWebhookToken()
+        => Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
 
     /// <summary>
     /// Puts every original poster back before the plugin is removed,

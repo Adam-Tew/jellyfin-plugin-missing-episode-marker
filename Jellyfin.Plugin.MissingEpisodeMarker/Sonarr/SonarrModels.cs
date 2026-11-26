@@ -66,3 +66,75 @@ public class SonarrEpisode
     /// <summary>Gets or sets a value indicating whether the episode is monitored.</summary>
     public bool Monitored { get; set; }
 }
+
+/// <summary>A paged response from Sonarr (wanted/missing, queue).</summary>
+/// <typeparam name="T">Record type.</typeparam>
+public class SonarrPage<T>
+{
+    /// <summary>Gets or sets the page number.</summary>
+    public int Page { get; set; }
+
+    /// <summary>Gets or sets the page size.</summary>
+    public int PageSize { get; set; }
+
+    /// <summary>Gets or sets the total number of records.</summary>
+    public int TotalRecords { get; set; }
+
+    /// <summary>Gets or sets the records on this page.</summary>
+    public System.Collections.Generic.List<T> Records { get; set; } = new System.Collections.Generic.List<T>();
+}
+
+/// <summary>A download in Sonarr's queue (one record per episode).</summary>
+public class SonarrQueueItem
+{
+    /// <summary>Gets or sets the queue id.</summary>
+    public int Id { get; set; }
+
+    /// <summary>Gets or sets the series id.</summary>
+    public int? SeriesId { get; set; }
+
+    /// <summary>Gets or sets the episode id.</summary>
+    public int? EpisodeId { get; set; }
+
+    /// <summary>Gets or sets the release title.</summary>
+    public string? Title { get; set; }
+
+    /// <summary>Gets or sets the download status (queued, downloading, paused, warning, failed, ...).</summary>
+    public string? Status { get; set; }
+
+    /// <summary>Gets or sets the tracked download status (ok, warning, error).</summary>
+    public string? TrackedDownloadStatus { get; set; }
+
+    /// <summary>Gets or sets the tracked download state (downloading, importPending, importing, importBlocked, failedPending, ...).</summary>
+    public string? TrackedDownloadState { get; set; }
+
+    /// <summary>Gets or sets the episode (when requested with includeEpisode=true).</summary>
+    public SonarrEpisode? Episode { get; set; }
+
+    /// <summary>
+    /// Gets a value indicating whether the download is stuck or needs attention
+    /// (stalled torrent, paused, warning/error, import blocked, failed).
+    /// </summary>
+    public bool IsStalled
+    {
+        get
+        {
+            static bool Is(string? value, params string[] options)
+            {
+                foreach (var option in options)
+                {
+                    if (string.Equals(value, option, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+
+            return Is(TrackedDownloadStatus, "warning", "error")
+                || Is(Status, "warning", "failed", "paused", "downloadClientUnavailable", "stalled")
+                || Is(TrackedDownloadState, "importBlocked", "failedPending", "failed");
+        }
+    }
+}
