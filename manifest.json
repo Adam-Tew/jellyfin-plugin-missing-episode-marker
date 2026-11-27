@@ -10,6 +10,14 @@
         "image": "image.png",
         "versions": [
             {
+                "version": "0.4.1.0",
+                "changelog": "Fix: a season without a poster of its own showed the show cover's marker, even when the season was complete. Such seasons now get a season poster fetched (poster repair), or else an unmarked copy of the show poster, which is removed again with the markers. Poster repair now also covers seasons.\n",
+                "targetAbi": "12.0.0.0",
+                "sourceUrl": "https://github.com/Adam-Tew/jellyfin-plugin-missing-episode-marker/releases/download/v0.4.1.0/missing-episode-marker_0.4.1.0.zip",
+                "checksum": "9ff031d97e19d8dce265f3ae7331d428",
+                "timestamp": "2026-11-27T06:09:24Z"
+            },
+            {
                 "version": "0.4.0.0",
                 "changelog": "Sonarr decides what counts: unmonitored shows and episodes are ignored (specials rules and the TV shows tab are removed). New markers for stalled downloads (yellow), downloading (purple) and new episodes on the way (blue), each with its own colours and text; seasons and covers show the most important one. Checks every few minutes (configurable) and instantly via a Sonarr webhook; see the README for setup. Banner colours and texts moved to the Markers tab, please check them after updating.\n",
                 "targetAbi": "12.0.0.0",
